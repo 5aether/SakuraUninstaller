@@ -201,6 +201,7 @@ pub fn read_app(key: &windows_registry::Key, scope: &str, subkey: &str) -> Optio
             .and_then(|path| expand(path.trim_matches('"')).ok())
             .map(PathBuf::from)
             .filter(|path| path.is_absolute()),
+        icon: string("DisplayIcon").and_then(|value| icon_path(&value)),
         command,
         quiet_command: string("QuietUninstallString"),
         msi: (flag("WindowsInstaller") && is_product_code(subkey)).then(|| subkey.to_owned()),
@@ -210,6 +211,18 @@ pub fn read_app(key: &windows_registry::Key, scope: &str, subkey: &str) -> Optio
         installer,
         source_stamp: 0,
     })
+}
+
+fn icon_path(value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    let candidate = trimmed
+        .rsplit_once(',')
+        .filter(|(_, index)| index.trim().chars().all(|digit| digit.is_ascii_digit()))
+        .map_or(trimmed, |(path, _)| path);
+    expand(candidate.trim().trim_matches('"'))
+        .ok()
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute() && path.is_file())
 }
 
 fn install_date(value: &str) -> Option<String> {

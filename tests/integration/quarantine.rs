@@ -18,6 +18,7 @@ fn sample() -> App {
         install_date: None,
         size_kib: None,
         location: None,
+        icon: None,
         command: None,
         quiet_command: None,
         msi: None,

@@ -69,6 +69,7 @@ impl Locations {
             install_date: None,
             size_kib: None,
             location: Some(parent.to_owned()),
+            icon: Some(executable),
             command: None,
             quiet_command: None,
             msi: None,

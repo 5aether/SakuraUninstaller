@@ -13,6 +13,8 @@ pub struct App {
     pub install_date: Option<String>,
     pub size_kib: Option<u64>,
     pub location: Option<PathBuf>,
+    #[serde(default)]
+    pub icon: Option<PathBuf>,
     pub command: Option<String>,
     pub quiet_command: Option<String>,
     pub msi: Option<String>,

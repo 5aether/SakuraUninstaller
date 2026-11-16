@@ -357,15 +357,11 @@ pub fn execute(locations: &Locations, job: Job, previous: Vec<Candidate>) -> Out
             "Alcune operazioni richiedono attenzione. Apri Rapporti.",
             "Some operations need attention. Open Reports.",
         ));
-    } else if outcome.status.is_none() {
-        outcome.status = Some(if outcome.report.is_empty() {
-            Message::new("Elenco aggiornato", "Inventory updated")
-        } else {
-            Message::new(
-                "Operazione completata. Il rapporto è disponibile.",
-                "Operation completed. A report is available.",
-            )
-        });
+    } else if outcome.status.is_none() && !outcome.report.is_empty() {
+        outcome.status = Some(Message::new(
+            "Operazione completata. Il rapporto è disponibile.",
+            "Operation completed. A report is available.",
+        ));
     }
     outcome
 }

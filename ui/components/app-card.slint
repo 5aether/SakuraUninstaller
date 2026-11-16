@@ -1,10 +1,14 @@
-import { CheckBox, CheckState, MaterialPalette, MaterialText, MaterialTypography } from "@material";
+import {
+    CheckBox, CheckState, MaterialPalette, MaterialText, MaterialTypography,
+} from "@material";
 
 export struct Entry {
     id: string,
     title: string,
     description: string,
     size: string,
+    initial: string,
+    icon: image,
     selectable: bool,
     selected: bool,
 }
@@ -12,18 +16,69 @@ export struct Entry {
 export component AppCard {
     in property <Entry> item;
     in property <bool> enabled;
+    in property <bool> show-details: true;
     callback select(bool);
 
-    height: 66px;
+    height: root.show-details ? 64px : 56px;
 
-    Rectangle {
-        border-radius: 12px;
-        background: root.item.selected ? MaterialPalette.secondary_container : MaterialPalette.surface_container_low;
+    background_layer := Rectangle {
+        width: 100%;
+        height: 100%;
 
         HorizontalLayout {
-            padding-left: 14px;
-            padding-right: 16px;
-            spacing: 6px;
+            padding-left: 24px;
+            padding-right: 24px;
+            spacing: 16px;
+
+            avatar := Rectangle {
+                width: 40px;
+                height: 40px;
+                border-radius: 20px;
+                background: MaterialPalette.primary_container;
+                clip: true;
+
+                if root.item.icon.width > 0 && root.item.icon.height > 0 : Image {
+                    width: 100%;
+                    height: 100%;
+                    source: root.item.icon;
+                    image-fit: contain;
+                }
+
+                if root.item.icon.width == 0 || root.item.icon.height == 0 : MaterialText {
+                    text: root.item.initial;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    color: MaterialPalette.on_primary_container;
+                    style: MaterialTypography.title_medium;
+                }
+            }
+
+            title_layout := VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 1px;
+
+                MaterialText {
+                    text: root.item.title;
+                    style: MaterialTypography.body_large;
+                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface;
+                    overflow: elide;
+                }
+
+                if root.show-details && root.item.description != "" : MaterialText {
+                    text: root.item.description;
+                    style: MaterialTypography.body_small;
+                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+                    overflow: elide;
+                }
+            }
+
+            if root.show-details && root.item.size != "" : MaterialText {
+                text: root.item.size;
+                style: MaterialTypography.label_large;
+                color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+                vertical-alignment: center;
+            }
 
             CheckBox {
                 width: 48px;
@@ -37,34 +92,6 @@ export component AppCard {
                         root.select(state == CheckState.checked);
                     }
                 }
-            }
-
-            VerticalLayout {
-                horizontal-stretch: 1;
-                alignment: center;
-                spacing: 2px;
-
-                MaterialText {
-                    text: root.item.title;
-                    style: MaterialTypography.title_medium;
-                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface;
-                    overflow: elide;
-                }
-
-                MaterialText {
-                    text: root.item.description;
-                    style: MaterialTypography.body_small;
-                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
-                    overflow: elide;
-                    accessible-description: root.item.description;
-                }
-            }
-
-            MaterialText {
-                text: root.item.size;
-                style: MaterialTypography.label_large;
-                color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
-                vertical-alignment: center;
             }
         }
     }

@@ -1,0 +1,139 @@
+import { Icon, MaterialPalette, MaterialText, MaterialTypography, StateLayerArea } from "@material";
+
+component FilterField inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> highlighted: false;
+    in property <bool> interactive: true;
+
+    callback activated();
+
+    height: 56px;
+    border-radius: 4px;
+    border-width: root.highlighted ? 3px : 1px;
+    border-color: root.highlighted ? MaterialPalette.primary : MaterialPalette.outline;
+
+    MaterialText {
+        x: 12px;
+        y: 8px;
+        text: root.label;
+        style: MaterialTypography.body_small;
+        letter-spacing: 0.4px;
+        color: root.highlighted ? MaterialPalette.primary : MaterialPalette.on_surface_variant;
+    }
+
+    MaterialText {
+        x: 12px;
+        y: 26px;
+        width: parent.width - 64px;
+        text: root.value;
+        style: MaterialTypography.body_large;
+        letter-spacing: 0.5px;
+        color: MaterialPalette.on_surface;
+        overflow: elide;
+    }
+
+    VerticalLayout {
+        x: parent.width - 48px;
+        y: 4px;
+        width: 48px;
+        height: 48px;
+        alignment: center;
+
+        Icon {
+            source: @image-url("../icons/arrow_drop_down.svg");
+            colorize: MaterialPalette.on_surface_variant;
+            width: 18px;
+        }
+    }
+
+    if root.interactive : TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.activated(); }
+    }
+}
+
+export component FilterMenu {
+    in property <string> label;
+    in property <[string]> options;
+    in-out property <int> current-index: 0;
+
+    callback selected(int);
+
+    width: 160px;
+    height: 56px;
+
+    private property <string> value: root.current-index >= 0 && root.current-index < root.options.length
+        ? root.options[root.current-index]
+        : "";
+
+    FilterField {
+        width: 100%;
+        label: root.label;
+        value: root.value;
+
+        activated => { popup.show(); }
+    }
+
+    popup := PopupWindow {
+        x: 0;
+        y: 0;
+        width: root.width;
+        close-policy: close-on-click-outside;
+
+        VerticalLayout {
+            FilterField {
+                label: root.label;
+                value: root.value;
+                highlighted: true;
+                interactive: false;
+            }
+
+            Rectangle {
+                background: MaterialPalette.surface_container;
+                border-radius: 4px;
+                drop-shadow-blur: 6px;
+                drop-shadow-offset-y: 2px;
+                drop-shadow-color: MaterialPalette.shadow_30;
+                height: options_layout.preferred-height;
+
+                options_layout := VerticalLayout {
+                    width: 100%;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+
+                    for option[index] in root.options : Rectangle {
+                        height: 56px;
+
+                        option_row := StateLayerArea {
+                            width: 100%;
+                            height: 100%;
+                            color: MaterialPalette.on_surface;
+
+                            clicked => {
+                                root.current-index = index;
+                                popup.close();
+                                root.selected(index);
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+
+                                MaterialText {
+                                    horizontal-stretch: 1;
+                                    text: option;
+                                    style: MaterialTypography.body_large;
+                                    letter-spacing: 0.5px;
+                                    color: MaterialPalette.on_surface;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

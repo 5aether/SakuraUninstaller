@@ -1,0 +1,116 @@
+import { Icon, MaterialPalette, MaterialText, MaterialTypography, ScrollView, StateLayerArea } from "@material";
+
+export struct MenuEntry {
+    text: string,
+    icon: image,
+    trailing: string,
+    visible: bool,
+    enabled: bool,
+    checkable: bool,
+    checked: bool,
+}
+
+component MenuRow {
+    in property <MenuEntry> entry;
+    callback activated();
+    height: 56px;
+
+    accessible-role: button;
+    accessible-label: root.entry.text;
+    accessible-enabled: root.entry.enabled;
+    accessible-action-default => { root.activated(); }
+
+    state_area := StateLayerArea {
+        width: 100%;
+        height: 100%;
+        color: MaterialPalette.on_surface;
+        enabled: root.entry.enabled;
+        display_background: root.entry.enabled;
+        clicked => { root.activated(); }
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 12px;
+
+            if root.entry.icon.width > 0 && root.entry.icon.height > 0 : VerticalLayout {
+                alignment: center;
+
+                Icon {
+                    source: root.entry.icon;
+                    colorize: root.entry.enabled ? MaterialPalette.on_surface_variant : MaterialPalette.on_surface_variant.with_alpha(38%);
+                    width: 20px;
+                }
+            }
+
+            MaterialText {
+                horizontal-stretch: 1;
+                text: root.entry.text;
+                style: MaterialTypography.body_large;
+                letter-spacing: 0.5px;
+                color: root.entry.enabled ? MaterialPalette.on_surface : MaterialPalette.on_surface.with_alpha(38%);
+                vertical-alignment: center;
+            }
+
+            if root.entry.trailing != "" : MaterialText {
+                text: root.entry.trailing;
+                style: MaterialTypography.body_medium;
+                color: MaterialPalette.on_surface_variant;
+                vertical-alignment: center;
+            }
+
+            if root.entry.checkable && root.entry.checked : VerticalLayout {
+                alignment: center;
+
+                Icon {
+                    source: @image-url("../icons/check.svg");
+                    colorize: MaterialPalette.primary;
+                    width: 20px;
+                }
+            }
+        }
+    }
+}
+
+export component MenuPanel {
+    in property <[MenuEntry]> entries;
+    in property <length> limit-height: 10000px;
+    callback activated(int);
+
+    width: 200px;
+    height: min(layout.preferred-height + 16px, root.limit-height);
+
+    panel := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 24px;
+        background: MaterialPalette.surface_container;
+        drop-shadow-blur: 6px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: MaterialPalette.shadow_30;
+        clip: true;
+
+        ScrollView {
+            x: 0px;
+            y: 8px;
+            width: 100%;
+            height: parent.height - 16px;
+            content-height: content.height;
+
+            content := Rectangle {
+                width: parent.width;
+                height: layout.preferred-height;
+
+                layout := VerticalLayout {
+                    width: parent.width;
+
+                    for entry[index] in root.entries : MenuRow {
+                        entry: entry;
+                        visible: entry.visible;
+                        activated => { root.activated(index); }
+                    }
+                }
+            }
+        }
+    }
+}

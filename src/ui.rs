@@ -10,8 +10,9 @@ use crate::{
     uninstall::runner::{self as jobs, Job, Outcome},
     updates,
     utils::{
-        paths,
+        icons, paths,
         strings::{self, localized, matches, size},
+        window_controls,
     },
 };
 use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
@@ -26,6 +27,14 @@ fn page(ui: &AppWindow) -> usize {
 
 fn item_id(item: &Candidate) -> String {
     item.path.to_string_lossy().into_owned()
+}
+
+fn initial(name: &str) -> String {
+    name.trim()
+        .chars()
+        .next()
+        .map(|letter| letter.to_uppercase().to_string())
+        .unwrap_or_default()
 }
 
 fn draw(ui: &AppWindow, state: &mut State) {
@@ -82,6 +91,8 @@ fn draw(ui: &AppWindow, state: &mut State) {
                         id: app.id.as_str().into(),
                         title: app.name.as_str().into(),
                         description: details.join(" · ").into(),
+                        initial: initial(&app.name).into(),
+                        icon: icons::image(app.icon.as_deref()),
                         size: state
                             .measured
                             .get(&app.id)
@@ -154,6 +165,8 @@ fn draw(ui: &AppWindow, state: &mut State) {
                     id: id.into(),
                     title: item.path.to_string_lossy().as_ref().into(),
                     description: format!("{} · {source}{mode}", item.app).into(),
+                    initial: initial(&item.app).into(),
+                    icon: icons::image(None),
                     size: if item.integration.is_some() {
                         String::new()
                     } else {
@@ -174,6 +187,8 @@ fn draw(ui: &AppWindow, state: &mut State) {
                     id: id.into(),
                     title: saved.item.path.to_string_lossy().as_ref().into(),
                     description: saved.item.app.as_str().into(),
+                    initial: initial(&saved.item.app).into(),
+                    icon: icons::image(None),
                     size: if saved.item.integration.is_some() {
                         String::new()
                     } else {
@@ -519,7 +534,20 @@ pub fn connect(ui: &AppWindow, locations: Locations) {
         }
     });
     bind!(on_measure, |ui, shared| {
-        let apps = selected_apps(&shared.lock().unwrap());
+        let apps = {
+            let state = shared.lock().unwrap();
+            let selected = selected_apps(&state);
+            if selected.is_empty() {
+                state
+                    .apps
+                    .iter()
+                    .filter(|(app, _)| app.selectable() && state.visible.contains(&app.id))
+                    .map(|(app, _)| app.clone())
+                    .collect()
+            } else {
+                selected
+            }
+        };
         if !apps.is_empty() {
             start(&ui, &shared, Job::Measure(apps));
         }
@@ -627,6 +655,20 @@ pub fn connect(ui: &AppWindow, locations: Locations) {
             start(&ui, &shared, job);
         }
     });
+    {
+        let weak = ui.as_weak();
+        ui.on_close_window(move || {
+            if let Some(window) = weak.upgrade()
+                && !window.get_busy()
+            {
+                let _ = window.hide();
+            }
+        });
+    }
+    ui.on_minimize_window(|| {
+        window_controls::minimize();
+    });
+    ui.on_toggle_maximize_window(window_controls::toggle_maximize);
     bind!(on_open_folder, |ui, shared| {
         let mut state = shared.lock().unwrap();
         if let Err(error) = state

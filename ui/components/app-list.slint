@@ -4,18 +4,27 @@ import { AppCard, Entry } from "app-card.slint";
 export component AppList inherits ScrollView {
     in property <[Entry]> entries;
     in property <bool> busy;
+    in property <bool> show-details: true;
     callback select(string, bool);
-    content-height: max(self.height, rows.preferred-height);
+    content-height: max(self.height, content.height);
 
-    rows := VerticalLayout {
+    content := Rectangle {
         width: parent.width;
-        spacing: 6px;
-        padding-right: 6px;
+        height: rows.preferred-height;
 
-        for item in root.entries : AppCard {
-            item: item;
-            enabled: !root.busy;
-            select(selected) => { root.select(item.id, selected); }
+        rows := VerticalLayout {
+            width: parent.width;
+            height: 100%;
+            spacing: 0px;
+            padding-right: 12px;
+            padding-bottom: 56px;
+
+            for item in root.entries : AppCard {
+                item: item;
+                enabled: !root.busy;
+                show-details: root.show-details;
+                select(selected) => { root.select(item.id, selected); }
+            }
         }
     }
 }

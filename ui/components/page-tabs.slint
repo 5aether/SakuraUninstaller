@@ -1,0 +1,99 @@
+import { MaterialPalette, MaterialText, MaterialTypography, StateLayerArea } from "@material";
+
+export struct TabItem {
+    text: string,
+    count: int,
+    show_count: bool,
+}
+
+component CountBadge {
+    in property <int> count;
+
+    width: max(16px, label.width + 10px);
+    height: 16px;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 8px;
+        background: MaterialPalette.error;
+    }
+
+    label := MaterialText {
+        text: "\{root.count}";
+        style: MaterialTypography.label_small;
+        color: MaterialPalette.on_error;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component TabPill {
+    in property <TabItem> item;
+    in property <bool> selected;
+
+    callback activated();
+
+    height: 32px;
+
+    accessible-role: tab;
+    accessible-label: root.item.text;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.activated(); }
+
+    state_area := StateLayerArea {
+        width: 100%;
+        height: 100%;
+        border-radius: 16px;
+        color: MaterialPalette.on_surface;
+        clicked => { root.activated(); }
+
+        if root.selected : Rectangle {
+            width: 100%;
+            height: 100%;
+            border-radius: 16px;
+            background: MaterialPalette.secondary_container;
+        }
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 4px;
+
+            MaterialText {
+                text: root.item.text;
+                style: MaterialTypography.label_medium;
+                letter-spacing: 0.5px;
+                color: root.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+                vertical-alignment: center;
+            }
+
+            if root.item.show_count : VerticalLayout {
+                alignment: center;
+
+                CountBadge { count: root.item.count; }
+            }
+        }
+    }
+}
+
+export component PageTabs inherits HorizontalLayout {
+    in property <[TabItem]> items;
+    in-out property <int> current-index;
+
+    callback activated(int);
+
+    height: 32px;
+    spacing: 8px;
+    alignment: center;
+
+    for item[index] in root.items : TabPill {
+        item: item;
+        selected: index == root.current-index;
+
+        activated => {
+            root.current-index = index;
+            root.activated(index);
+        }
+    }
+}

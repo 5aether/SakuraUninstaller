@@ -1,25 +1,119 @@
 import {
-    CheckBox, CheckState, Dialog, DropDownMenu, FilledButton, MaterialPalette,
-    MaterialText, MaterialTypography, MaterialWindow, SegmentedButton, TextButton,
-    TextField, TonalButton,
+    CheckBox, CheckState, Dialog, FilledButton, Icon, MaterialPalette, MaterialText,
+    MaterialTypography, MaterialWindow, StateLayerArea, TextButton, TextField,
 } from "@material";
 import { SakuraTheme } from "sakura-theme.slint";
 import { Entry } from "components/app-card.slint";
 import { AppList } from "components/app-list.slint";
 import { ConfirmDialog } from "components/confirm-dialog.slint";
+import { FilterMenu } from "components/filter-menu.slint";
 import { LeftoverPanel } from "components/leftover-panel.slint";
+import { MenuEntry, MenuPanel } from "components/menu-panel.slint";
+import { PageTabs, TabItem } from "components/page-tabs.slint";
 import { ProgressPanel } from "components/progress-panel.slint";
 import { ReportPanel } from "components/report-panel.slint";
+import { SearchField } from "components/search-field.slint";
 
 export { Entry }
 
+component TitlebarButton {
+    in property <image> icon;
+    in property <string> label;
+    callback clicked();
+
+    width: 30px;
+    height: 30px;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    StateLayerArea {
+        width: 100%;
+        height: 100%;
+        border-radius: 15px;
+        color: MaterialPalette.on_surface;
+        clicked => { root.clicked(); }
+
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            source: root.icon;
+            colorize: MaterialPalette.on_surface_variant;
+            width: 18px;
+        }
+    }
+}
+
+component ActionPill {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> enabled;
+
+    callback clicked();
+
+    height: 48px;
+    width: pill_layout.preferred-width;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 24px;
+        background: MaterialPalette.primary_container;
+        clip: true;
+
+        StateLayerArea {
+            width: 100%;
+            height: 100%;
+            border-radius: 24px;
+            color: MaterialPalette.on_primary_container;
+            enabled: root.enabled;
+            clicked => { root.clicked(); }
+
+            pill_layout := HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    alignment: center;
+
+                    Icon {
+                        source: root.icon;
+                        colorize: MaterialPalette.on_primary_container;
+                        width: 20px;
+                    }
+                }
+
+                Text {
+                    text: root.text;
+                    font-size: 16px;
+                    font-weight: 500;
+                    letter-spacing: 0.15px;
+                    color: MaterialPalette.on_primary_container;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits MaterialWindow {
     title: "Sakura Uninstaller";
+    icon: @image-url("icons/sakura.svg");
     preferred-width: 1000px;
     preferred-height: 720px;
     min-width: 760px;
     min-height: 585px;
     default-font-family: "Segoe UI";
+    no-frame: true;
+    background: transparent;
+    resize-border-width: root.maximized ? 0px : 6px;
 
     in property <bool> italian;
     in property <bool> busy;
@@ -48,12 +142,114 @@ export component AppWindow inherits MaterialWindow {
     in-out property <int> page;
     in-out property <int> profile-index: 1;
     in-out property <int> filter-index;
+    in-out property <bool> menu-open: false;
+    in-out property <bool> quick-menu-open: false;
+
+    private property <length> corner-radius: root.maximized ? 0px : 24px;
+    private property <length> titlebar-height: 56px;
+    private property <length> footer-height: 64px;
+    private property <length> fab-size: 56px;
+    private property <length> fab-left: root.width - 16px - root.fab-size;
+    private property <length> fab-top: root.height - root.footer-height - 8px - root.fab-size;
     private property <string> primary-label: page == 0
         ? (only-portable ? (italian ? "Cerca residui" : "Scan leftovers") : (italian ? "Disinstalla" : "Uninstall"))
         : page == 1 ? (italian ? "Sposta in quarantena" : "Move to quarantine")
                     : (italian ? "Ripristina" : "Restore");
     private property <string> confirmation-label;
     private property <bool> confirmation-review: true;
+
+    private property <[MenuEntry]> main-menu: [
+        {
+            text: root.italian ? "English" : "Italiano",
+            icon: @image-url(""),
+            trailing: "",
+            visible: true,
+            enabled: true,
+            checkable: false,
+            checked: false,
+        },
+        {
+            text: root.italian ? "Registro attività" : "Activity log",
+            icon: @image-url(""),
+            trailing: "",
+            visible: true,
+            enabled: !root.busy,
+            checkable: false,
+            checked: false,
+        },
+        {
+            text: root.italian ? "Aggiorna" : "Refresh",
+            icon: @image-url(""),
+            trailing: "",
+            visible: true,
+            enabled: !root.busy,
+            checkable: false,
+            checked: false,
+        },
+        {
+            text: root.italian ? "Seleziona visibili" : "Select visible",
+            icon: @image-url(""),
+            trailing: "",
+            visible: true,
+            enabled: !root.busy && root.available-count > 0,
+            checkable: false,
+            checked: false,
+        },
+        {
+            text: root.italian ? "Misura" : "Measure",
+            icon: @image-url(""),
+            trailing: "",
+            visible: root.page == 0,
+            enabled: !root.busy,
+            checkable: false,
+            checked: false,
+        },
+        {
+            text: root.italian ? "Rapporti" : "Reports",
+            icon: @image-url(""),
+            trailing: "",
+            visible: root.has-report,
+            enabled: !root.busy,
+            checkable: false,
+            checked: false,
+        },
+        {
+            text: root.italian ? "Modalità silenziosa" : "Quiet mode",
+            icon: @image-url(""),
+            trailing: "",
+            visible: root.page == 0,
+            enabled: !root.busy,
+            checkable: true,
+            checked: root.silent,
+        },
+        {
+            text: root.italian ? "Impostazioni" : "Settings",
+            icon: @image-url(""),
+            trailing: "",
+            visible: true,
+            enabled: !root.busy,
+            checkable: false,
+            checked: false,
+        },
+    ];
+
+    private property <[TabItem]> tabs: [
+        {
+            text: root.italian ? "Software installato" : "Installed software",
+            count: 0,
+            show_count: false,
+        },
+        {
+            text: root.italian ? "Residui" : "Leftovers",
+            count: root.residue-count,
+            show_count: true,
+        },
+        {
+            text: root.italian ? "Quarantena" : "Quarantine",
+            count: root.saved-count,
+            show_count: true,
+        },
+    ];
 
     callback load-page(int);
     callback language-changed();
@@ -76,250 +272,345 @@ export component AppWindow inherits MaterialWindow {
     callback prepare-action();
     callback confirm-action(bool);
     callback open-folder();
+    callback close-window();
+    callback minimize-window();
+    callback toggle-maximize-window() -> bool;
 
     init => { MaterialPalette.schemes = SakuraTheme.schemes; }
 
-    VerticalLayout {
-        padding: 24px;
-        spacing: 14px;
-
-        HorizontalLayout {
-            vertical-stretch: 0;
-            spacing: 12px;
-
-            Image {
-                width: 36px;
-                height: 36px;
-                source: @image-url("icons/sakura.svg");
-            }
-
-            MaterialText {
-                horizontal-stretch: 1;
-                text: "Sakura Uninstaller";
-                style: MaterialTypography.headline_small;
-                color: MaterialPalette.on_surface;
-                vertical-alignment: center;
-            }
-
-            TextButton {
-                text: root.italian ? "English" : "Italiano";
-                clicked => { root.language-changed(); }
-            }
-
-            TextButton {
-                text: root.italian ? "Registro attività" : "Activity log";
-                enabled: !root.busy;
-                clicked => { root.open-folder(); }
-            }
-            TextButton {
-                text: root.italian ? "Impostazioni" : "Settings";
-                enabled: !root.busy;
-                clicked => { settings.show(); }
-            }
-        }
-
-        HorizontalLayout {
-            vertical-stretch: 0;
-            spacing: 8px;
-
-            SegmentedButton {
-                horizontal-stretch: 0;
-                current-index <=> root.page;
-                items: [
-                    { text: root.italian ? "Software installato" : "Installed software" },
-                    { text: root.italian ? "Residui (\{root.residue-count})" : "Leftovers (\{root.residue-count})" },
-                    { text: root.italian ? "Quarantena (\{root.saved-count})" : "Quarantine (\{root.saved-count})" }
-                ];
-                index-changed(index) => { root.load-page(index); }
-            }
-
-            Rectangle { horizontal-stretch: 1; }
-
-            if root.page == 0 : TextButton {
-                text: root.italian ? "Aggiungi portatile" : "Add portable";
-                enabled: !root.busy;
-                clicked => { portable-dialog.show(); }
-            }
-
-            TextButton {
-                text: root.italian ? "Aggiorna" : "Refresh";
-                enabled: !root.busy;
-                clicked => { root.refresh(); }
-            }
-        }
-
-        if root.page == 0 : HorizontalLayout {
-            vertical-stretch: 0;
-            spacing: 8px;
-
-            TextField {
-                horizontal-stretch: 1;
-                label: root.italian ? "Cerca nome, editore o versione" : "Search name, publisher or version";
-                leading-icon: @image-url("icons/search.svg");
-                accessible-placeholder-text: self.label;
-                text <=> root.search-text;
-                edited => { root.filter-changed(); }
-            }
-
-            DropDownMenu {
-                width: 156px;
-                current-index <=> root.filter-index;
-                label: root.italian ? "Filtro" : "Filter";
-                items: [
-                    { text: root.italian ? "Tutti" : "All" },
-                    { text: root.italian ? "Rimovibili" : "Removable" },
-                    { text: "MSIX" },
-                    { text: root.italian ? "Portatili" : "Portable" }
-                ];
-                selected(_) => { root.filter-changed(); }
-            }
-
-            DropDownMenu {
-                width: 166px;
-                enabled: !root.busy;
-                current-index <=> root.profile-index;
-                label: root.italian ? "Scansione" : "Scan profile";
-                items: [
-                    { text: root.italian ? "Sicura" : "Safe" },
-                    { text: root.italian ? "Equilibrata" : "Balanced" },
-                    { text: root.italian ? "Approfondita" : "Deep" }
-                ];
-                selected(_) => { root.profile-changed(); }
-            }
-        }
-
-        HorizontalLayout {
-            vertical-stretch: 0;
-            spacing: 12px;
-
-            MaterialText {
-                horizontal-stretch: 1;
-                text: root.italian
-                    ? "\{root.available-count} risultati · \{root.selected-count} selezionati"
-                    : "\{root.available-count} results · \{root.selected-count} selected";
-                style: MaterialTypography.label_large;
-                color: MaterialPalette.on_surface_variant;
-                vertical-alignment: center;
-            }
-
-            TextButton {
-                text: root.italian ? "Seleziona visibili" : "Select visible";
-                enabled: !root.busy && root.available-count > 0;
-                clicked => { root.select-visible(); }
-            }
-
-            TextButton {
-                text: root.italian ? "Deseleziona" : "Clear selection";
-                enabled: !root.busy && root.selected-count > 0;
-                clicked => { root.clear-selection(); }
-            }
-        }
-
-        if root.busy : ProgressPanel {}
-
-        if root.entries.length > 0 : AppList {
-            vertical-stretch: 1;
-            entries: root.entries;
-            busy: root.busy;
-            select(id, selected) => { root.select(id, selected); }
-        }
-
-        if root.entries.length == 0 : LeftoverPanel {
-            italian: root.italian;
-            busy: root.busy;
-            page: root.page;
-        }
-
-        if root.status != "" : MaterialText {
-            vertical-stretch: 0;
-            text: root.status;
-            style: MaterialTypography.body_medium;
-            color: root.status-error ? MaterialPalette.error : MaterialPalette.on_surface_variant;
-            wrap: word-wrap;
-        }
-
-        HorizontalLayout {
-            vertical-stretch: 0;
-            spacing: 8px;
-
-            if root.page == 0 : HorizontalLayout {
-                horizontal-stretch: 0;
-                spacing: 2px;
-                CheckBox {
-                    width: 48px;
-                    height: 48px;
-                    accessible-label: root.italian ? "Modalità silenziosa" : "Quiet mode";
-                    enabled: !root.busy && root.silent-supported;
-                    check-state: root.silent ? CheckState.checked : CheckState.unchecked;
-                    checked-state-changed(state) => {
-                        if (state == CheckState.checked) != root.silent {
-                            root.silent = state == CheckState.checked;
-                        }
-                    }
-                }
-                MaterialText {
-                    text: root.italian ? "Modalità silenziosa" : "Quiet mode";
-                    style: MaterialTypography.body_medium;
-                    color: MaterialPalette.on_surface;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle { horizontal-stretch: 1; }
-
-            if root.page == 0 : TonalButton {
-                text: root.italian ? "Anteprima" : "Dry run";
-                enabled: !root.busy && root.selected-count > 0;
-                clicked => {
-                    root.preview();
-                }
-            }
-
-            if root.page == 0 : TextButton {
-                text: root.italian ? "Misura" : "Measure";
-                enabled: !root.busy && root.selected-count > 0;
-                clicked => { root.measure(); }
-            }
-
-            if root.page == 0 : TextButton {
-                text: root.italian ? "Chiudi app" : "Close apps";
-                enabled: !root.busy && root.selected-count > 0;
-                clicked => { close-dialog.show(); }
-            }
-
-            if root.has-report : TextButton {
-                text: root.italian ? "Rapporti" : "Reports";
-                enabled: !root.busy;
-                clicked => { root.browse-report(0); report.show(); }
-            }
-
-            FilledButton {
-                text: root.primary-label;
-                icon: root.page == 0 ? @image-url("icons/delete.svg") : @image-url("");
-                enabled: !root.busy && root.selected-count > 0;
-                clicked => {
-                    root.confirmation-label = root.primary-label;
-                    root.prepare-action();
-                    root.confirmation-review = true;
-                    confirmation.show();
-                }
-            }
+    changed status => {
+        if !root.busy && root.status != "" {
+            notice.show();
         }
     }
 
-    close-dialog := Dialog {
+    changed busy => {
+        if !root.busy && root.status != "" {
+            notice.show();
+        }
+    }
+
+    public function activate-main-menu(index: int) {
+        if index == 0 {
+            root.language-changed();
+        } else if index == 1 {
+            root.open-folder();
+        } else if index == 2 {
+            root.refresh();
+        } else if index == 3 {
+            root.select-visible();
+        } else if index == 4 {
+            root.measure();
+        } else if index == 5 {
+            root.browse-report(0);
+            report.show();
+        } else if index == 6 {
+            if !root.busy {
+                root.silent = !root.silent;
+            }
+        } else {
+            settings.show();
+        }
+    }
+
+    shell := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: root.corner-radius;
+        background: MaterialPalette.surface_container;
+        border-width: 1px;
+        border-color: MaterialPalette.outline_variant.with_alpha(50%);
+        clip: true;
+
+        VerticalLayout {
+            titlebar := Rectangle {
+                height: root.titlebar-height;
+                vertical-stretch: 0;
+                background: MaterialPalette.surface_container;
+
+                WindowMoveArea {
+                    width: 100%;
+                    height: 100%;
+                }
+
+                MaterialText {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    text: root.title;
+                    style: MaterialTypography.title_large;
+                    color: MaterialPalette.on_surface;
+                }
+
+                HorizontalLayout {
+                    width: 100%;
+                    height: 100%;
+                    padding-right: 10px;
+                    spacing: 0px;
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    VerticalLayout {
+                        alignment: center;
+                        padding-top: 1px;
+
+                        window_buttons := HorizontalLayout {
+                            spacing: 0px;
+
+                        TitlebarButton {
+                            icon: @image-url("icons/caret_down.svg");
+                            label: root.italian ? "Riduci a icona" : "Minimize";
+                            clicked => { root.minimize-window(); }
+                        }
+
+                        TitlebarButton {
+                            icon: @image-url("icons/caret_up.svg");
+                            label: root.maximized
+                                ? (root.italian ? "Ripristina" : "Restore")
+                                : (root.italian ? "Ingrandisci" : "Maximize");
+                            clicked => { root.maximized = root.toggle-maximize-window(); }
+                        }
+
+                        TitlebarButton {
+                            icon: @image-url("icons/close.svg");
+                            label: root.italian ? "Chiudi" : "Close";
+                            clicked => { root.close-window(); }
+                        }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    x: 12px;
+                    y: (parent.height - 48px) / 2 + 1px;
+                    width: 48px;
+                    height: 48px;
+
+                    Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 20px;
+                        background: MaterialPalette.primary;
+                        clip: true;
+
+                        StateLayerArea {
+                            width: 100%;
+                            height: 100%;
+                            border-radius: 20px;
+                            color: MaterialPalette.on_primary;
+                            accessible-role: button;
+                            accessible-label: root.italian ? "Menu di Sakura" : "Sakura menu";
+
+                            clicked => {
+                                root.menu-open = !root.menu-open;
+                                root.quick-menu-open = false;
+                            }
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                source: @image-url("icons/gear.svg");
+                                colorize: MaterialPalette.on_primary;
+                                width: 20px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                padding-left: 32px;
+                padding-right: 32px;
+                padding-top: 10px;
+                spacing: 20px;
+
+                if root.page == 0 : HorizontalLayout {
+                    vertical-stretch: 0;
+                    spacing: 8px;
+
+                    SearchField {
+                        horizontal-stretch: 1;
+                        placeholder: root.italian ? "Cerca nome, editore o versione" : "Search name, publisher or version";
+                        enabled: !root.busy;
+                        text <=> root.search-text;
+                        edited => { root.filter-changed(); }
+                    }
+
+                    FilterMenu {
+                        label: root.italian ? "Filtro" : "Filter";
+                        options: [
+                            root.italian ? "Tutti" : "All",
+                            root.italian ? "Rimovibili" : "Removable",
+                            "MSIX",
+                            root.italian ? "Portatili" : "Portable"
+                        ];
+                        current-index <=> root.filter-index;
+                        selected(_) => { root.filter-changed(); }
+                    }
+
+                    FilterMenu {
+                        label: root.italian ? "Scansione" : "Scan profile";
+                        options: [
+                            root.italian ? "Sicura" : "Safe",
+                            root.italian ? "Equilibrata" : "Balanced",
+                            root.italian ? "Approfondita" : "Deep"
+                        ];
+                        current-index <=> root.profile-index;
+                        selected(_) => { root.profile-changed(); }
+                    }
+                }
+
+                if root.busy : ProgressPanel {}
+
+                if root.entries.length > 0 : AppList {
+                    vertical-stretch: 1;
+                    entries: root.entries;
+                    busy: root.busy;
+                    show-details: root.page != 0;
+                    select(id, selected) => { root.select(id, selected); }
+                }
+
+                if root.entries.length == 0 : LeftoverPanel {
+                    italian: root.italian;
+                    busy: root.busy;
+                    page: root.page;
+                }
+
+            }
+
+            Rectangle {
+                height: root.footer-height;
+                vertical-stretch: 0;
+                background: MaterialPalette.surface_container;
+
+                PageTabs {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    items: root.tabs;
+                    current-index <=> root.page;
+                    activated(index) => { root.load-page(index); }
+                }
+            }
+        }
+
+        if root.quick-menu-open : TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.quick-menu-open = false; }
+        }
+
+        if root.quick-menu-open : ActionPill {
+            x: root.fab-left + root.fab-size - self.width;
+            y: root.fab-top - 60px;
+            text: root.primary-label;
+            icon: root.page == 0 ? @image-url("icons/delete.svg") : @image-url("");
+            enabled: !root.busy && root.selected-count > 0;
+            clicked => {
+                root.quick-menu-open = false;
+                root.confirmation-label = root.primary-label;
+                root.prepare-action();
+                root.confirmation-review = true;
+                confirmation.show();
+            }
+        }
+
+        if root.quick-menu-open && root.page == 0 : ActionPill {
+            x: root.fab-left + root.fab-size - self.width;
+            y: root.fab-top - 120px;
+            text: root.italian ? "Anteprima" : "Dry run";
+            icon: @image-url("icons/folder.svg");
+            enabled: !root.busy && root.selected-count > 0;
+            clicked => {
+                root.quick-menu-open = false;
+                root.preview();
+            }
+        }
+
+        if root.quick-menu-open && root.page == 0 : ActionPill {
+            x: root.fab-left + root.fab-size - self.width;
+            y: root.fab-top - 180px;
+            text: root.italian ? "Aggiungi portatile" : "Add portable";
+            icon: @image-url("icons/install_desktop.svg");
+            enabled: !root.busy;
+            clicked => {
+                root.quick-menu-open = false;
+                portable-dialog.show();
+            }
+        }
+
+        Rectangle {
+            x: root.fab-left;
+            y: root.fab-top;
+            width: root.fab-size;
+            height: root.fab-size;
+            border-radius: root.quick-menu-open ? root.fab-size / 2 : 24px;
+            background: root.quick-menu-open ? MaterialPalette.primary : MaterialPalette.primary_container;
+            drop-shadow-blur: 8px;
+            drop-shadow-offset-y: 4px;
+            drop-shadow-spread: 3px;
+            drop-shadow-color: #00000026;
+
+            StateLayerArea {
+                width: 100%;
+                height: 100%;
+                border-radius: root.quick-menu-open ? root.fab-size / 2 : 24px;
+                color: root.quick-menu-open ? MaterialPalette.on_primary : MaterialPalette.on_primary_container;
+                accessible-role: button;
+                accessible-label: root.italian ? "Azioni rapide" : "Quick actions";
+
+                clicked => {
+                    root.quick-menu-open = !root.quick-menu-open;
+                    root.menu-open = false;
+                }
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    source: root.quick-menu-open ? @image-url("icons/close.svg") : @image-url("icons/more_vert.svg");
+                    colorize: root.quick-menu-open ? MaterialPalette.on_primary : MaterialPalette.on_primary_container;
+                    width: 24px;
+                }
+            }
+        }
+
+        if root.menu-open : Rectangle {
+            width: 100%;
+            height: 100%;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.menu-open = false; }
+            }
+
+            MenuPanel {
+                x: 12px;
+                y: root.titlebar-height + 6px;
+                limit-height: root.height - root.titlebar-height - 20px;
+                entries: root.main-menu;
+                activated(index) => {
+                    root.menu-open = false;
+                    root.activate-main-menu(index);
+                }
+            }
+        }
+
+    }
+
+    notice := Dialog {
         width: root.width;
         height: root.height;
-        title: root.italian ? "Chiudi app selezionate" : "Close selected apps";
-        actions: [root.italian ? "Annulla" : "Cancel", root.italian ? "Chiedi di chiudere" : "Request close"];
-        action-clicked(index) => {
-            self.close();
-            if index == 1 { root.close-apps(); }
-        }
+        title: root.italian ? "Sakura Uninstaller" : "Sakura Uninstaller";
+        actions: ["OK"];
+        action-clicked => { self.close(); }
         MaterialText {
             width: 440px;
             wrap: word-wrap;
-            text: root.italian ? "Invia una richiesta di chiusura alle finestre attribuite alle app selezionate. Le app possono chiedere di salvare il lavoro." : "Send close requests to windows attributed to the selected apps. Apps may ask you to save your work.";
+            text: root.status;
+            color: root.status-error ? MaterialPalette.error : MaterialPalette.on_surface;
         }
     }
 
