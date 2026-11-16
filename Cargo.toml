@@ -1,0 +1,26 @@
+[package]
+name = "SakuraUninstaller"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+
+[dependencies]
+# Lean Windows configuration: winit windowing + software renderer, no OpenGL/Qt.
+slint = { version = "1.19", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "software-renderer-systemfonts",
+    "accessibility",
+    "compat-1-2",
+] }
+
+[build-dependencies]
+slint-build = "1.19"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

@@ -1,0 +1,378 @@
+import { MaterialWindow } from "@material";
+
+// Material 3 baseline (purple) palette, matching the design.
+global Theme {
+    out property <color> primary: #6750A4;
+    out property <color> on-primary: #FFFFFF;
+    out property <color> primary-container: #DCD1EF;
+    out property <color> on-primary-container: #21005D;
+    out property <color> background: #F7F4FB;
+    out property <color> on-surface: #1D1B20;
+    out property <color> on-surface-variant: #49454F;
+    out property <color> surface-container-high: #ECE6F0;
+    out property <color> outline-variant: #CAC4D0;
+}
+
+export struct AppEntry {
+    name: string,
+    initial: string,
+    date: string,
+    selected: bool,
+}
+
+enum WindowGlyph {
+    minimize,
+    maximize,
+    close,
+}
+
+component WindowControl inherits Rectangle {
+    in property <WindowGlyph> glyph;
+    in property <color> glyph-color: Theme.on-surface;
+
+    callback clicked;
+
+    width: 32px;
+    height: 32px;
+    border-radius: self.height / 2;
+    background: touch.has_hover ? Theme.on-surface.with_alpha(8%) : transparent;
+
+    Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.glyph == WindowGlyph.close ? 12px : 10px;
+        height: root.glyph == WindowGlyph.close ? 12px : 6px;
+        fill: root.glyph == WindowGlyph.close ? transparent : root.glyph-color;
+        stroke: root.glyph == WindowGlyph.close ? root.glyph-color : transparent;
+        stroke-width: root.glyph == WindowGlyph.close ? 1.5px : 0px;
+        commands: root.glyph == WindowGlyph.close
+            ? "M 0 0 L 12 12 M 12 0 L 0 12"
+            : root.glyph == WindowGlyph.minimize
+                ? "M 0 0 L 10 0 L 5 6 Z"
+                : "M 5 0 L 10 6 L 0 6 Z";
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component TitleBar inherits Rectangle {
+    height: 48px;
+    background: transparent;
+
+    callback minimize-clicked;
+    callback maximize-clicked;
+    callback close-clicked;
+
+    WindowMoveArea {
+        Image {
+            x: 24px;
+            y: (parent.height - self.height) / 2;
+            width: 24px;
+            height: 24px;
+            source: @image-url("icons/sakura.svg");
+        }
+
+        VerticalLayout {
+            x: 58px;
+            y: (parent.height - self.height) / 2;
+            width: 18px;
+            height: 12px;
+            spacing: 3px;
+
+            Rectangle { height: 2px; border-radius: 1px; background: Theme.on-surface; }
+            Rectangle { height: 2px; border-radius: 1px; background: Theme.on-surface; }
+            Rectangle { height: 2px; border-radius: 1px; background: Theme.on-surface; }
+        }
+
+        Text {
+            width: 100%;
+            height: 100%;
+            text: "Sakura Uninstaller";
+            color: Theme.on-surface;
+            font-size: 20px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        HorizontalLayout {
+            x: parent.width - self.width - 8px;
+            y: (parent.height - self.height) / 2;
+            width: 96px;
+            height: 32px;
+
+            WindowControl {
+                glyph: WindowGlyph.minimize;
+
+                clicked => {
+                    root.minimize-clicked();
+                }
+            }
+
+            WindowControl {
+                glyph: WindowGlyph.maximize;
+
+                clicked => {
+                    root.maximize-clicked();
+                }
+            }
+
+            WindowControl {
+                glyph: WindowGlyph.close;
+
+                clicked => {
+                    root.close-clicked();
+                }
+            }
+        }
+    }
+}
+
+component SearchField inherits Rectangle {
+    in-out property <string> text;
+    in property <image> icon;
+
+    height: 40px;
+    border-radius: self.height / 2;
+    background: Theme.surface-container-high;
+
+    input := TextInput {
+        x: 20px;
+        width: root.width - 72px;
+        height: 100%;
+        text <=> root.text;
+        font-size: 16px;
+        color: Theme.on-surface;
+        vertical-alignment: center;
+        single-line: true;
+        selection-background-color: Theme.primary;
+        selection-foreground-color: Theme.on-primary;
+    }
+
+    if root.text == "" : Text {
+        x: 20px;
+        width: root.width - 72px;
+        height: 100%;
+        text: "Search the app name";
+        font-size: 16px;
+        color: Theme.on-surface-variant;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Image {
+        x: root.width - 18px - self.width;
+        y: (root.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        source: root.icon;
+        colorize: Theme.on-surface-variant;
+    }
+}
+
+component AppRow inherits Rectangle {
+    in property <string> name;
+    in property <string> initial;
+    in property <string> date;
+    in property <bool> selected;
+    in property <image> check-icon;
+
+    callback toggled;
+
+    height: 59px;
+    background: touch_area.has_hover ? Theme.on-surface.with_alpha(4%) : transparent;
+
+    Rectangle {
+        x: 34px;
+        y: (parent.height - self.height) / 2;
+        width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        background: Theme.primary-container;
+
+        Text {
+            width: 100%;
+            height: 100%;
+            text: root.initial;
+            color: Theme.on-primary-container;
+            font-size: 16px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    Text {
+        x: 88px;
+        width: 260px;
+        height: 100%;
+        text: root.name;
+        color: Theme.on-surface;
+        font-size: 16px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Text {
+        x: parent.width * 0.457;
+        width: 220px;
+        height: 100%;
+        text: root.date;
+        color: Theme.on-surface;
+        font-size: 16px;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: parent.width - 70px;
+        y: (parent.height - self.height) / 2;
+        width: 18px;
+        height: 18px;
+        border-radius: 3px;
+        background: root.selected ? Theme.primary : transparent;
+        border-width: root.selected ? 0px : 2px;
+        border-color: Theme.on-surface-variant;
+
+        if root.selected : Image {
+            width: 100%;
+            height: 100%;
+            source: root.check-icon;
+            colorize: Theme.on-primary;
+        }
+    }
+
+    touch_area := TouchArea {
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+component UninstallButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+
+    callback clicked;
+
+    height: 52px;
+    width: layout.preferred-width;
+    border-radius: self.height / 2;
+    background: touch.has_hover ? #7A63AE : Theme.primary;
+    drop-shadow-color: #00000033;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-blur: 6px;
+
+    layout := HorizontalLayout {
+        padding-left: 24px;
+        padding-right: 28px;
+        spacing: 12px;
+        alignment: center;
+
+        Image {
+            width: 20px;
+            height: 20px;
+            source: root.icon;
+            colorize: Theme.on-primary;
+        }
+
+        Text {
+            text: root.text;
+            color: Theme.on-primary;
+            font-size: 16px;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component AppWindow inherits MaterialWindow {
+    title: "Sakura Uninstaller";
+    no-frame: true;
+    resize-border-width: 8px;
+    preferred-width: 824px;
+    preferred-height: 625px;
+    min-width: 640px;
+    min-height: 625px;
+    default-font-family: "Segoe UI";
+    background: Theme.background;
+
+    in property <[AppEntry]> entries;
+    in-out property <string> search-text;
+    in property <image> delete-icon: @image-url("icons/delete.svg");
+    in property <image> check-icon: @image-url("icons/check.svg");
+    in property <image> search-icon: @image-url("icons/search.svg");
+
+    callback toggle-entry(index: int);
+    callback uninstall-selected();
+
+    VerticalLayout {
+        spacing: 0px;
+
+        TitleBar {
+            minimize-clicked => {
+                root.minimized = true;
+            }
+
+            maximize-clicked => {
+                root.maximized = !root.maximized;
+            }
+
+            close-clicked => {
+                root.close();
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 64px;
+            padding-right: 48px;
+            padding-top: 20px;
+            padding-bottom: 22px;
+
+            SearchField {
+                text <=> root.search-text;
+                icon: root.search-icon;
+            }
+        }
+
+        Flickable {
+            content-height: 59px * root.entries.length;
+
+            VerticalLayout {
+                width: parent.width;
+                height: 59px * root.entries.length;
+
+                for entry[index] in root.entries : AppRow {
+                    name: entry.name;
+                    initial: entry.initial;
+                    date: entry.date;
+                    selected: entry.selected;
+                    check-icon: root.check-icon;
+
+                    toggled => {
+                        root.toggle-entry(index);
+                    }
+                }
+            }
+        }
+    }
+
+    UninstallButton {
+        x: root.width - self.width - 20px;
+        y: root.height - self.height - 24px;
+        icon: root.delete-icon;
+        text: "Uninstall Selected";
+
+        clicked => {
+            root.uninstall-selected();
+        }
+    }
+}
