@@ -8,14 +8,14 @@ component FilterField inherits Rectangle {
 
     callback activated();
 
-    height: 56px;
+    height: 64px;
     border-radius: 4px;
     border-width: root.highlighted ? 3px : 1px;
     border-color: root.highlighted ? MaterialPalette.primary : MaterialPalette.outline;
 
     MaterialText {
-        x: 12px;
-        y: 8px;
+        x: 14px;
+        y: 10px;
         text: root.label;
         style: MaterialTypography.body_small;
         letter-spacing: 0.4px;
@@ -23,9 +23,9 @@ component FilterField inherits Rectangle {
     }
 
     MaterialText {
-        x: 12px;
-        y: 26px;
-        width: parent.width - 64px;
+        x: 14px;
+        y: 32px;
+        width: parent.width - 68px;
         text: root.value;
         style: MaterialTypography.body_large;
         letter-spacing: 0.5px;
@@ -35,7 +35,7 @@ component FilterField inherits Rectangle {
 
     VerticalLayout {
         x: parent.width - 48px;
-        y: 4px;
+        y: 8px;
         width: 48px;
         height: 48px;
         alignment: center;
@@ -62,7 +62,7 @@ export component FilterMenu {
     callback selected(int);
 
     width: 160px;
-    height: 56px;
+    height: 64px;
 
     private property <string> value: root.current-index >= 0 && root.current-index < root.options.length
         ? root.options[root.current-index]

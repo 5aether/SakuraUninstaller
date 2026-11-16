@@ -92,7 +92,7 @@ fn draw(ui: &AppWindow, state: &mut State) {
                         title: app.name.as_str().into(),
                         description: details.join(" · ").into(),
                         initial: initial(&app.name).into(),
-                        icon: icons::image(app.icon.as_deref()),
+                        icon: icons::image(app.icon_file().as_deref()),
                         size: state
                             .measured
                             .get(&app.id)
@@ -166,7 +166,7 @@ fn draw(ui: &AppWindow, state: &mut State) {
                     title: item.path.to_string_lossy().as_ref().into(),
                     description: format!("{} · {source}{mode}", item.app).into(),
                     initial: initial(&item.app).into(),
-                    icon: icons::image(None),
+                    icon: icons::image(Some(&item.path)),
                     size: if item.integration.is_some() {
                         String::new()
                     } else {
@@ -188,7 +188,7 @@ fn draw(ui: &AppWindow, state: &mut State) {
                     title: saved.item.path.to_string_lossy().as_ref().into(),
                     description: saved.item.app.as_str().into(),
                     initial: initial(&saved.item.app).into(),
-                    icon: icons::image(None),
+                    icon: icons::image(Some(&saved.item.path)),
                     size: if saved.item.integration.is_some() {
                         String::new()
                     } else {

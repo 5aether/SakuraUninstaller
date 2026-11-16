@@ -72,8 +72,7 @@ component ActionPill {
             height: 100%;
             border-radius: 24px;
             color: MaterialPalette.on_primary_container;
-            enabled: root.enabled;
-            clicked => { root.clicked(); }
+            clicked => { if root.enabled { root.clicked(); } }
 
             pill_layout := HorizontalLayout {
                 padding-left: 24px;
@@ -147,7 +146,8 @@ export component AppWindow inherits MaterialWindow {
 
     private property <length> corner-radius: root.maximized ? 0px : 24px;
     private property <length> titlebar-height: 56px;
-    private property <length> footer-height: 64px;
+    private property <length> footer-height: 78px;
+    private property <length> footer-padding: (root.footer-height - 40px) / 2;
     private property <length> fab-size: 56px;
     private property <length> fab-left: root.width - 16px - root.fab-size;
     private property <length> fab-top: root.height - root.footer-height - 8px - root.fab-size;
@@ -469,7 +469,6 @@ export component AppWindow inherits MaterialWindow {
                     vertical-stretch: 1;
                     entries: root.entries;
                     busy: root.busy;
-                    show-details: root.page != 0;
                     select(id, selected) => { root.select(id, selected); }
                 }
 
@@ -478,7 +477,6 @@ export component AppWindow inherits MaterialWindow {
                     busy: root.busy;
                     page: root.page;
                 }
-
             }
 
             Rectangle {
@@ -488,10 +486,20 @@ export component AppWindow inherits MaterialWindow {
 
                 PageTabs {
                     x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
+                    y: root.footer-padding;
                     items: root.tabs;
                     current-index <=> root.page;
                     activated(index) => { root.load-page(index); }
+                }
+
+                MaterialText {
+                    x: 32px;
+                    y: root.footer-padding + (40px - self.height) / 2;
+                    text: root.italian
+                        ? "\{root.available-count} risultati · \{root.selected-count} selezionati"
+                        : "\{root.available-count} results · \{root.selected-count} selected";
+                    style: MaterialTypography.body_medium;
+                    color: MaterialPalette.on_surface_variant;
                 }
             }
         }

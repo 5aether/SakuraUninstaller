@@ -34,7 +34,9 @@ export component AppCard {
                 width: 40px;
                 height: 40px;
                 border-radius: 20px;
-                background: MaterialPalette.primary_container;
+                background: root.item.icon.width > 0 || root.item.icon.height > 0
+                    ? transparent
+                    : MaterialPalette.primary_container;
                 clip: true;
 
                 if root.item.icon.width > 0 && root.item.icon.height > 0 : Image {
@@ -53,23 +55,31 @@ export component AppCard {
                 }
             }
 
-            title_layout := VerticalLayout {
-                alignment: center;
+            title_layout := Rectangle {
                 horizontal-stretch: 1;
-                spacing: 1px;
+                clip: true;
 
-                MaterialText {
-                    text: root.item.title;
-                    style: MaterialTypography.body_large;
-                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface;
-                    overflow: elide;
-                }
+                VerticalLayout {
+                    width: 100%;
+                    height: 100%;
+                    alignment: start;
+                    spacing: 1px;
 
-                if root.show-details && root.item.description != "" : MaterialText {
-                    text: root.item.description;
-                    style: MaterialTypography.body_small;
-                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
-                    overflow: elide;
+                    MaterialText {
+                        text: root.item.title;
+                        style: MaterialTypography.body_large;
+                        color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface;
+                        overflow: elide;
+                        vertical-stretch: 0;
+                    }
+
+                    if root.show-details && root.item.description != "" : MaterialText {
+                        text: root.item.description;
+                        style: MaterialTypography.body_small;
+                        color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+                        overflow: elide;
+                        vertical-stretch: 0;
+                    }
                 }
             }
 
