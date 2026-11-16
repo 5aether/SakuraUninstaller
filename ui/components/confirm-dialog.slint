@@ -1,0 +1,42 @@
+import { CheckBox, CheckState, Dialog, MaterialPalette, MaterialText, MaterialTypography, ScrollView } from "@material";
+
+export component ConfirmDialog inherits Dialog {
+    in property <bool> italian;
+    in property <string> details;
+    in property <bool> offer-review;
+    in-out property <bool> review-after: true;
+    callback confirmed(bool);
+    actions: [root.italian ? "Annulla" : "Cancel", root.title];
+    action-clicked(index) => {
+        self.close();
+        if index == 1 { root.confirmed(root.review-after); }
+    }
+
+    VerticalLayout {
+        width: 472px;
+        ScrollView {
+            height: min(250px, confirmation-body.preferred-height + 12px);
+            content-height: max(self.height, confirmation-body.preferred-height);
+            confirmation-body := MaterialText {
+                width: parent.width - 16px;
+                text: root.details;
+                style: MaterialTypography.body_medium;
+                color: MaterialPalette.on_surface;
+                wrap: word-wrap;
+            }
+        }
+        if root.offer-review : HorizontalLayout {
+            CheckBox {
+                width: 48px;
+                accessible-label: root.italian ? "Cerca residui dopo la disinstallazione" : "Scan for leftovers after uninstall";
+                check-state: root.review-after ? CheckState.checked : CheckState.unchecked;
+                checked-state-changed(state) => { root.review-after = state == CheckState.checked; }
+            }
+            MaterialText {
+                style: MaterialTypography.body_medium;
+                vertical-alignment: center;
+                text: root.italian ? "Cerca residui dopo la disinstallazione" : "Scan for leftovers after uninstall";
+            }
+        }
+    }
+}

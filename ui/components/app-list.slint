@@ -1,0 +1,21 @@
+import { ScrollView } from "@material";
+import { AppCard, Entry } from "app-card.slint";
+
+export component AppList inherits ScrollView {
+    in property <[Entry]> entries;
+    in property <bool> busy;
+    callback select(string, bool);
+    content-height: max(self.height, rows.preferred-height);
+
+    rows := VerticalLayout {
+        width: parent.width;
+        spacing: 6px;
+        padding-right: 6px;
+
+        for item in root.entries : AppCard {
+            item: item;
+            enabled: !root.busy;
+            select(selected) => { root.select(item.id, selected); }
+        }
+    }
+}

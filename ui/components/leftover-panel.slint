@@ -1,0 +1,21 @@
+import { MaterialPalette, MaterialText, MaterialTypography } from "@material";
+
+export component LeftoverPanel inherits Rectangle {
+    in property <bool> busy;
+    in property <bool> italian;
+    in property <int> page;
+    vertical-stretch: 1;
+    border-radius: 16px;
+    background: MaterialPalette.surface_container_low;
+
+    MaterialText {
+        width: parent.width - 32px;
+        text: root.busy ? (root.italian ? "Operazione in corso…" : "Working…")
+            : root.page == 0 ? (root.italian ? "Nessun software corrispondente" : "No matching software")
+            : root.page == 1 ? (root.italian ? "Nessun residuo da esaminare" : "No leftovers to review")
+                             : (root.italian ? "La quarantena è vuota" : "Quarantine is empty");
+        style: MaterialTypography.title_medium;
+        color: MaterialPalette.on_surface_variant;
+        horizontal-alignment: center;
+    }
+}

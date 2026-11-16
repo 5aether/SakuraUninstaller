@@ -1,0 +1,173 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Windows tests (Rust ${{ matrix.rust }})
+    runs-on: windows-2025
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, "1.95.0"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        id: toolchain
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (rustc +${{ matrix.rust }} --version).Split(' ')[1]
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-test-${{ steps.toolchain.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+      - name: Formatting
+        if: matrix.rust == 'stable'
+        run: cargo +stable fmt --all -- --check
+      - name: Lint
+        if: matrix.rust == 'stable'
+        run: cargo +stable clippy --locked --all-targets -- -D warnings
+      - name: Test isolated Windows fixtures
+        run: cargo +${{ matrix.rust }} test --locked --all-targets
+
+  build:
+    name: Windows x64 release artifact
+    needs: test
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        id: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (rustc +stable --version).Split(' ')[1]
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-release-${{ steps.toolchain.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+      - name: Build
+        env:
+          SAKURA_RELEASE_PUBLIC_KEY: ${{ vars.SAKURA_RELEASE_PUBLIC_KEY }}
+          SAKURA_TELEMETRY_HOST: ${{ vars.SAKURA_TELEMETRY_HOST }}
+          SAKURA_TELEMETRY_PATH: ${{ vars.SAKURA_TELEMETRY_PATH }}
+        run: cargo +stable build --locked --release
+      - name: Sign executable on version tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SAKURA_SIGNING_PFX: ${{ secrets.SAKURA_SIGNING_PFX }}
+          SAKURA_SIGNING_PASSWORD: ${{ secrets.SAKURA_SIGNING_PASSWORD }}
+        run: ./packaging/Sign-Artifact.ps1 -Path target/release/SakuraUninstaller.exe
+      - name: Smoke test release executable (read-only)
+        shell: pwsh
+        run: |
+          $binary = Join-Path $PWD 'target/release/SakuraUninstaller.exe'
+          $process = Start-Process -FilePath $binary -ArgumentList '--smoke-test' -WindowStyle Hidden -PassThru
+          if (!$process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Sakura Uninstaller smoke test timed out.'
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "Sakura Uninstaller smoke test exited with code $($process.ExitCode)."
+          }
+      - name: Bundle executable with checksum
+        shell: pwsh
+        run: |
+          New-Item -Path dist -ItemType Directory -Force | Out-Null
+          Copy-Item -LiteralPath 'target/release/SakuraUninstaller.exe','LICENSE','README.md' -Destination dist
+          Copy-Item -LiteralPath 'material-1.1.0/LICENSE.md' -Destination 'dist/LICENSE-Slint-Material.md'
+      - name: Build versioned per-user MSI
+        shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          $wixDir = Join-Path $env:RUNNER_TEMP 'sakura-wix'
+          dotnet tool install wix --version 4.0.6 --tool-path $wixDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([0-9]+\.[0-9]+\.[0-9]+)"$').Matches.Groups[1].Value
+          if (!$version) { throw 'Missing MSI-compatible Cargo package version.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw 'Tag does not match Cargo.toml version.'
+          }
+          & (Join-Path $wixDir 'wix.exe') build -arch x64 -d "Version=$version" -d "Binary=$PWD/dist/SakuraUninstaller.exe" -o 'dist/SakuraUninstaller-x64.msi' 'packaging/SakuraUninstaller.wxs'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test the MSI lifecycle on an isolated runner
+        shell: pwsh
+        run: |
+          $msi = (Resolve-Path -LiteralPath 'dist/SakuraUninstaller-x64.msi').Path
+          $app = Join-Path $env:LOCALAPPDATA 'SakuraUninstallerApp/SakuraUninstaller.exe'
+          if (Test-Path -LiteralPath $app) { throw 'The test needs a clean runner.' }
+          $installed = $false
+          try {
+            $quotedMsi = '"' + $msi + '"'
+            $install = Start-Process msiexec.exe -ArgumentList "/i $quotedMsi /qn /norestart" -WindowStyle Hidden -Wait -PassThru
+            if ($install.ExitCode -notin @(0, 3010)) { throw "MSI install failed with $($install.ExitCode)." }
+            $installed = $true
+            $test = Start-Process -FilePath $app -ArgumentList '--smoke-test' -WindowStyle Hidden -PassThru
+            if (!$test.WaitForExit(60000)) { $test.Kill(); throw 'Installed smoke test timed out.' }
+            if ($test.ExitCode -ne 0) { throw "Installed smoke test failed with $($test.ExitCode)." }
+          } finally {
+            if ($installed) {
+              $remove = Start-Process msiexec.exe -ArgumentList "/x $quotedMsi /qn /norestart" -WindowStyle Hidden -Wait -PassThru
+              if ($remove.ExitCode -notin @(0, 3010) -or (Test-Path -LiteralPath $app)) {
+                throw "MSI removal failed with $($remove.ExitCode)."
+              }
+            }
+          }
+      - name: Sign installer on version tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SAKURA_SIGNING_PFX: ${{ secrets.SAKURA_SIGNING_PFX }}
+          SAKURA_SIGNING_PASSWORD: ${{ secrets.SAKURA_SIGNING_PASSWORD }}
+        run: ./packaging/Sign-Artifact.ps1 -Path dist/SakuraUninstaller-x64.msi
+      - name: Prepare signed update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SAKURA_RELEASE_PUBLIC_KEY: ${{ vars.SAKURA_RELEASE_PUBLIC_KEY }}
+          SAKURA_RELEASE_PRIVATE_KEY: ${{ secrets.SAKURA_RELEASE_PRIVATE_KEY }}
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          ./packaging/New-UpdateManifest.ps1 -Installer dist/SakuraUninstaller-x64.msi -Version $version -Output dist/update.json
+      - name: Write artifact checksums
+        run: |
+          Get-FileHash -Algorithm SHA256 -LiteralPath 'dist/SakuraUninstaller.exe','dist/SakuraUninstaller-x64.msi' |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_.Path))" } |
+            Set-Content -Encoding ascii -LiteralPath 'dist/SHA256SUMS'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SakuraUninstaller-Windows-x64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

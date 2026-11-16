@@ -1,378 +1,439 @@
-import { MaterialWindow } from "@material";
+import {
+    CheckBox, CheckState, Dialog, DropDownMenu, FilledButton, MaterialPalette,
+    MaterialText, MaterialTypography, MaterialWindow, SegmentedButton, TextButton,
+    TextField, TonalButton,
+} from "@material";
+import { SakuraTheme } from "sakura-theme.slint";
+import { Entry } from "components/app-card.slint";
+import { AppList } from "components/app-list.slint";
+import { ConfirmDialog } from "components/confirm-dialog.slint";
+import { LeftoverPanel } from "components/leftover-panel.slint";
+import { ProgressPanel } from "components/progress-panel.slint";
+import { ReportPanel } from "components/report-panel.slint";
 
-// Material 3 baseline (purple) palette, matching the design.
-global Theme {
-    out property <color> primary: #6750A4;
-    out property <color> on-primary: #FFFFFF;
-    out property <color> primary-container: #DCD1EF;
-    out property <color> on-primary-container: #21005D;
-    out property <color> background: #F7F4FB;
-    out property <color> on-surface: #1D1B20;
-    out property <color> on-surface-variant: #49454F;
-    out property <color> surface-container-high: #ECE6F0;
-    out property <color> outline-variant: #CAC4D0;
-}
-
-export struct AppEntry {
-    name: string,
-    initial: string,
-    date: string,
-    selected: bool,
-}
-
-enum WindowGlyph {
-    minimize,
-    maximize,
-    close,
-}
-
-component WindowControl inherits Rectangle {
-    in property <WindowGlyph> glyph;
-    in property <color> glyph-color: Theme.on-surface;
-
-    callback clicked;
-
-    width: 32px;
-    height: 32px;
-    border-radius: self.height / 2;
-    background: touch.has_hover ? Theme.on-surface.with_alpha(8%) : transparent;
-
-    Path {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: root.glyph == WindowGlyph.close ? 12px : 10px;
-        height: root.glyph == WindowGlyph.close ? 12px : 6px;
-        fill: root.glyph == WindowGlyph.close ? transparent : root.glyph-color;
-        stroke: root.glyph == WindowGlyph.close ? root.glyph-color : transparent;
-        stroke-width: root.glyph == WindowGlyph.close ? 1.5px : 0px;
-        commands: root.glyph == WindowGlyph.close
-            ? "M 0 0 L 12 12 M 12 0 L 0 12"
-            : root.glyph == WindowGlyph.minimize
-                ? "M 0 0 L 10 0 L 5 6 Z"
-                : "M 5 0 L 10 6 L 0 6 Z";
-    }
-
-    touch := TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
-component TitleBar inherits Rectangle {
-    height: 48px;
-    background: transparent;
-
-    callback minimize-clicked;
-    callback maximize-clicked;
-    callback close-clicked;
-
-    WindowMoveArea {
-        Image {
-            x: 24px;
-            y: (parent.height - self.height) / 2;
-            width: 24px;
-            height: 24px;
-            source: @image-url("icons/sakura.svg");
-        }
-
-        VerticalLayout {
-            x: 58px;
-            y: (parent.height - self.height) / 2;
-            width: 18px;
-            height: 12px;
-            spacing: 3px;
-
-            Rectangle { height: 2px; border-radius: 1px; background: Theme.on-surface; }
-            Rectangle { height: 2px; border-radius: 1px; background: Theme.on-surface; }
-            Rectangle { height: 2px; border-radius: 1px; background: Theme.on-surface; }
-        }
-
-        Text {
-            width: 100%;
-            height: 100%;
-            text: "Sakura Uninstaller";
-            color: Theme.on-surface;
-            font-size: 20px;
-            font-weight: 600;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-
-        HorizontalLayout {
-            x: parent.width - self.width - 8px;
-            y: (parent.height - self.height) / 2;
-            width: 96px;
-            height: 32px;
-
-            WindowControl {
-                glyph: WindowGlyph.minimize;
-
-                clicked => {
-                    root.minimize-clicked();
-                }
-            }
-
-            WindowControl {
-                glyph: WindowGlyph.maximize;
-
-                clicked => {
-                    root.maximize-clicked();
-                }
-            }
-
-            WindowControl {
-                glyph: WindowGlyph.close;
-
-                clicked => {
-                    root.close-clicked();
-                }
-            }
-        }
-    }
-}
-
-component SearchField inherits Rectangle {
-    in-out property <string> text;
-    in property <image> icon;
-
-    height: 40px;
-    border-radius: self.height / 2;
-    background: Theme.surface-container-high;
-
-    input := TextInput {
-        x: 20px;
-        width: root.width - 72px;
-        height: 100%;
-        text <=> root.text;
-        font-size: 16px;
-        color: Theme.on-surface;
-        vertical-alignment: center;
-        single-line: true;
-        selection-background-color: Theme.primary;
-        selection-foreground-color: Theme.on-primary;
-    }
-
-    if root.text == "" : Text {
-        x: 20px;
-        width: root.width - 72px;
-        height: 100%;
-        text: "Search the app name";
-        font-size: 16px;
-        color: Theme.on-surface-variant;
-        vertical-alignment: center;
-        overflow: elide;
-    }
-
-    Image {
-        x: root.width - 18px - self.width;
-        y: (root.height - self.height) / 2;
-        width: 20px;
-        height: 20px;
-        source: root.icon;
-        colorize: Theme.on-surface-variant;
-    }
-}
-
-component AppRow inherits Rectangle {
-    in property <string> name;
-    in property <string> initial;
-    in property <string> date;
-    in property <bool> selected;
-    in property <image> check-icon;
-
-    callback toggled;
-
-    height: 59px;
-    background: touch_area.has_hover ? Theme.on-surface.with_alpha(4%) : transparent;
-
-    Rectangle {
-        x: 34px;
-        y: (parent.height - self.height) / 2;
-        width: 40px;
-        height: 40px;
-        border-radius: 20px;
-        background: Theme.primary-container;
-
-        Text {
-            width: 100%;
-            height: 100%;
-            text: root.initial;
-            color: Theme.on-primary-container;
-            font-size: 16px;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
-
-    Text {
-        x: 88px;
-        width: 260px;
-        height: 100%;
-        text: root.name;
-        color: Theme.on-surface;
-        font-size: 16px;
-        vertical-alignment: center;
-        overflow: elide;
-    }
-
-    Text {
-        x: parent.width * 0.457;
-        width: 220px;
-        height: 100%;
-        text: root.date;
-        color: Theme.on-surface;
-        font-size: 16px;
-        vertical-alignment: center;
-    }
-
-    Rectangle {
-        x: parent.width - 70px;
-        y: (parent.height - self.height) / 2;
-        width: 18px;
-        height: 18px;
-        border-radius: 3px;
-        background: root.selected ? Theme.primary : transparent;
-        border-width: root.selected ? 0px : 2px;
-        border-color: Theme.on-surface-variant;
-
-        if root.selected : Image {
-            width: 100%;
-            height: 100%;
-            source: root.check-icon;
-            colorize: Theme.on-primary;
-        }
-    }
-
-    touch_area := TouchArea {
-        clicked => {
-            root.toggled();
-        }
-    }
-}
-
-component UninstallButton inherits Rectangle {
-    in property <image> icon;
-    in property <string> text;
-
-    callback clicked;
-
-    height: 52px;
-    width: layout.preferred-width;
-    border-radius: self.height / 2;
-    background: touch.has_hover ? #7A63AE : Theme.primary;
-    drop-shadow-color: #00000033;
-    drop-shadow-offset-y: 2px;
-    drop-shadow-blur: 6px;
-
-    layout := HorizontalLayout {
-        padding-left: 24px;
-        padding-right: 28px;
-        spacing: 12px;
-        alignment: center;
-
-        Image {
-            width: 20px;
-            height: 20px;
-            source: root.icon;
-            colorize: Theme.on-primary;
-        }
-
-        Text {
-            text: root.text;
-            color: Theme.on-primary;
-            font-size: 16px;
-            font-weight: 500;
-            vertical-alignment: center;
-        }
-    }
-
-    touch := TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
-}
+export { Entry }
 
 export component AppWindow inherits MaterialWindow {
     title: "Sakura Uninstaller";
-    no-frame: true;
-    resize-border-width: 8px;
-    preferred-width: 824px;
-    preferred-height: 625px;
-    min-width: 640px;
-    min-height: 625px;
+    preferred-width: 1000px;
+    preferred-height: 720px;
+    min-width: 760px;
+    min-height: 585px;
     default-font-family: "Segoe UI";
-    background: Theme.background;
 
-    in property <[AppEntry]> entries;
+    in property <bool> italian;
+    in property <bool> busy;
+    in property <bool> silent-supported;
+    in property <bool> only-portable;
+    in property <bool> status-error;
+    in property <bool> updates-configured;
+    in property <string> update-version;
+    in-out property <bool> auto-update;
+    in-out property <bool> diagnostics;
+    in property <string> diagnostics-host;
+    in property <int> selected-count;
+    in property <int> available-count;
+    in property <int> residue-count;
+    in property <int> saved-count;
+    in property <[Entry]> entries;
+    in property <string> status;
+    in property <string> report-text;
+    in property <bool> has-report;
+    in property <bool> report-has-older;
+    in property <int> report-offset;
+    in property <string> confirmation-detail;
+    in property <bool> offer-leftover-review;
     in-out property <string> search-text;
-    in property <image> delete-icon: @image-url("icons/delete.svg");
-    in property <image> check-icon: @image-url("icons/check.svg");
-    in property <image> search-icon: @image-url("icons/search.svg");
+    in-out property <bool> silent;
+    in-out property <int> page;
+    in-out property <int> profile-index: 1;
+    in-out property <int> filter-index;
+    private property <string> primary-label: page == 0
+        ? (only-portable ? (italian ? "Cerca residui" : "Scan leftovers") : (italian ? "Disinstalla" : "Uninstall"))
+        : page == 1 ? (italian ? "Sposta in quarantena" : "Move to quarantine")
+                    : (italian ? "Ripristina" : "Restore");
+    private property <string> confirmation-label;
+    private property <bool> confirmation-review: true;
 
-    callback toggle-entry(index: int);
-    callback uninstall-selected();
+    callback load-page(int);
+    callback language-changed();
+    callback filter-changed();
+    callback profile-changed();
+    callback measure();
+    callback close-apps();
+    callback add-portable(string);
+    callback check-update();
+    callback install-update();
+    callback update-preference();
+    callback diagnostics-preference();
+    callback send-diagnostics();
+    callback browse-report(int);
+    callback select(string, bool);
+    callback select-visible();
+    callback clear-selection();
+    callback refresh();
+    callback preview();
+    callback prepare-action();
+    callback confirm-action(bool);
+    callback open-folder();
+
+    init => { MaterialPalette.schemes = SakuraTheme.schemes; }
 
     VerticalLayout {
-        spacing: 0px;
+        padding: 24px;
+        spacing: 14px;
 
-        TitleBar {
-            minimize-clicked => {
-                root.minimized = true;
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 12px;
+
+            Image {
+                width: 36px;
+                height: 36px;
+                source: @image-url("icons/sakura.svg");
             }
 
-            maximize-clicked => {
-                root.maximized = !root.maximized;
+            MaterialText {
+                horizontal-stretch: 1;
+                text: "Sakura Uninstaller";
+                style: MaterialTypography.headline_small;
+                color: MaterialPalette.on_surface;
+                vertical-alignment: center;
             }
 
-            close-clicked => {
-                root.close();
+            TextButton {
+                text: root.italian ? "English" : "Italiano";
+                clicked => { root.language-changed(); }
+            }
+
+            TextButton {
+                text: root.italian ? "Registro attività" : "Activity log";
+                enabled: !root.busy;
+                clicked => { root.open-folder(); }
+            }
+            TextButton {
+                text: root.italian ? "Impostazioni" : "Settings";
+                enabled: !root.busy;
+                clicked => { settings.show(); }
             }
         }
 
-        VerticalLayout {
-            padding-left: 64px;
-            padding-right: 48px;
-            padding-top: 20px;
-            padding-bottom: 22px;
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 8px;
 
-            SearchField {
+            SegmentedButton {
+                horizontal-stretch: 0;
+                current-index <=> root.page;
+                items: [
+                    { text: root.italian ? "Software installato" : "Installed software" },
+                    { text: root.italian ? "Residui (\{root.residue-count})" : "Leftovers (\{root.residue-count})" },
+                    { text: root.italian ? "Quarantena (\{root.saved-count})" : "Quarantine (\{root.saved-count})" }
+                ];
+                index-changed(index) => { root.load-page(index); }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            if root.page == 0 : TextButton {
+                text: root.italian ? "Aggiungi portatile" : "Add portable";
+                enabled: !root.busy;
+                clicked => { portable-dialog.show(); }
+            }
+
+            TextButton {
+                text: root.italian ? "Aggiorna" : "Refresh";
+                enabled: !root.busy;
+                clicked => { root.refresh(); }
+            }
+        }
+
+        if root.page == 0 : HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 8px;
+
+            TextField {
+                horizontal-stretch: 1;
+                label: root.italian ? "Cerca nome, editore o versione" : "Search name, publisher or version";
+                leading-icon: @image-url("icons/search.svg");
+                accessible-placeholder-text: self.label;
                 text <=> root.search-text;
-                icon: root.search-icon;
+                edited => { root.filter-changed(); }
+            }
+
+            DropDownMenu {
+                width: 156px;
+                current-index <=> root.filter-index;
+                label: root.italian ? "Filtro" : "Filter";
+                items: [
+                    { text: root.italian ? "Tutti" : "All" },
+                    { text: root.italian ? "Rimovibili" : "Removable" },
+                    { text: "MSIX" },
+                    { text: root.italian ? "Portatili" : "Portable" }
+                ];
+                selected(_) => { root.filter-changed(); }
+            }
+
+            DropDownMenu {
+                width: 166px;
+                enabled: !root.busy;
+                current-index <=> root.profile-index;
+                label: root.italian ? "Scansione" : "Scan profile";
+                items: [
+                    { text: root.italian ? "Sicura" : "Safe" },
+                    { text: root.italian ? "Equilibrata" : "Balanced" },
+                    { text: root.italian ? "Approfondita" : "Deep" }
+                ];
+                selected(_) => { root.profile-changed(); }
             }
         }
 
-        Flickable {
-            content-height: 59px * root.entries.length;
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 12px;
 
-            VerticalLayout {
-                width: parent.width;
-                height: 59px * root.entries.length;
+            MaterialText {
+                horizontal-stretch: 1;
+                text: root.italian
+                    ? "\{root.available-count} risultati · \{root.selected-count} selezionati"
+                    : "\{root.available-count} results · \{root.selected-count} selected";
+                style: MaterialTypography.label_large;
+                color: MaterialPalette.on_surface_variant;
+                vertical-alignment: center;
+            }
 
-                for entry[index] in root.entries : AppRow {
-                    name: entry.name;
-                    initial: entry.initial;
-                    date: entry.date;
-                    selected: entry.selected;
-                    check-icon: root.check-icon;
+            TextButton {
+                text: root.italian ? "Seleziona visibili" : "Select visible";
+                enabled: !root.busy && root.available-count > 0;
+                clicked => { root.select-visible(); }
+            }
 
-                    toggled => {
-                        root.toggle-entry(index);
+            TextButton {
+                text: root.italian ? "Deseleziona" : "Clear selection";
+                enabled: !root.busy && root.selected-count > 0;
+                clicked => { root.clear-selection(); }
+            }
+        }
+
+        if root.busy : ProgressPanel {}
+
+        if root.entries.length > 0 : AppList {
+            vertical-stretch: 1;
+            entries: root.entries;
+            busy: root.busy;
+            select(id, selected) => { root.select(id, selected); }
+        }
+
+        if root.entries.length == 0 : LeftoverPanel {
+            italian: root.italian;
+            busy: root.busy;
+            page: root.page;
+        }
+
+        if root.status != "" : MaterialText {
+            vertical-stretch: 0;
+            text: root.status;
+            style: MaterialTypography.body_medium;
+            color: root.status-error ? MaterialPalette.error : MaterialPalette.on_surface_variant;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 8px;
+
+            if root.page == 0 : HorizontalLayout {
+                horizontal-stretch: 0;
+                spacing: 2px;
+                CheckBox {
+                    width: 48px;
+                    height: 48px;
+                    accessible-label: root.italian ? "Modalità silenziosa" : "Quiet mode";
+                    enabled: !root.busy && root.silent-supported;
+                    check-state: root.silent ? CheckState.checked : CheckState.unchecked;
+                    checked-state-changed(state) => {
+                        if (state == CheckState.checked) != root.silent {
+                            root.silent = state == CheckState.checked;
+                        }
                     }
+                }
+                MaterialText {
+                    text: root.italian ? "Modalità silenziosa" : "Quiet mode";
+                    style: MaterialTypography.body_medium;
+                    color: MaterialPalette.on_surface;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            if root.page == 0 : TonalButton {
+                text: root.italian ? "Anteprima" : "Dry run";
+                enabled: !root.busy && root.selected-count > 0;
+                clicked => {
+                    root.preview();
+                }
+            }
+
+            if root.page == 0 : TextButton {
+                text: root.italian ? "Misura" : "Measure";
+                enabled: !root.busy && root.selected-count > 0;
+                clicked => { root.measure(); }
+            }
+
+            if root.page == 0 : TextButton {
+                text: root.italian ? "Chiudi app" : "Close apps";
+                enabled: !root.busy && root.selected-count > 0;
+                clicked => { close-dialog.show(); }
+            }
+
+            if root.has-report : TextButton {
+                text: root.italian ? "Rapporti" : "Reports";
+                enabled: !root.busy;
+                clicked => { root.browse-report(0); report.show(); }
+            }
+
+            FilledButton {
+                text: root.primary-label;
+                icon: root.page == 0 ? @image-url("icons/delete.svg") : @image-url("");
+                enabled: !root.busy && root.selected-count > 0;
+                clicked => {
+                    root.confirmation-label = root.primary-label;
+                    root.prepare-action();
+                    root.confirmation-review = true;
+                    confirmation.show();
                 }
             }
         }
     }
 
-    UninstallButton {
-        x: root.width - self.width - 20px;
-        y: root.height - self.height - 24px;
-        icon: root.delete-icon;
-        text: "Uninstall Selected";
-
-        clicked => {
-            root.uninstall-selected();
+    close-dialog := Dialog {
+        width: root.width;
+        height: root.height;
+        title: root.italian ? "Chiudi app selezionate" : "Close selected apps";
+        actions: [root.italian ? "Annulla" : "Cancel", root.italian ? "Chiedi di chiudere" : "Request close"];
+        action-clicked(index) => {
+            self.close();
+            if index == 1 { root.close-apps(); }
         }
+        MaterialText {
+            width: 440px;
+            wrap: word-wrap;
+            text: root.italian ? "Invia una richiesta di chiusura alle finestre attribuite alle app selezionate. Le app possono chiedere di salvare il lavoro." : "Send close requests to windows attributed to the selected apps. Apps may ask you to save your work.";
+        }
+    }
+
+    settings := Dialog {
+        width: root.width;
+        height: root.height;
+        title: root.italian ? "Impostazioni" : "Settings";
+        actions: [root.italian ? "Chiudi" : "Close"];
+        action-clicked => { self.close(); }
+        VerticalLayout {
+            width: 484px;
+            spacing: 8px;
+            HorizontalLayout {
+                CheckBox {
+                    width: 48px;
+                    enabled: root.updates-configured;
+                    accessible-label: root.italian ? "Controllo aggiornamenti automatico" : "Automatic update check";
+                    check-state: root.auto-update ? CheckState.checked : CheckState.unchecked;
+                    checked-state-changed(state) => {
+                        if (state == CheckState.checked) != root.auto-update {
+                            root.auto-update = state == CheckState.checked;
+                            root.update-preference();
+                        }
+                    }
+                }
+                MaterialText {
+                    text: root.italian ? "Controlla aggiornamenti all’avvio" : "Check for updates on startup";
+                    vertical-alignment: center;
+                }
+            }
+            if !root.updates-configured : MaterialText {
+                text: root.italian ? "Il canale firmato non è configurato per questa build." : "This build has no configured signed update channel.";
+                wrap: word-wrap;
+                color: MaterialPalette.on_surface_variant;
+            }
+            HorizontalLayout {
+                CheckBox {
+                    width: 48px;
+                    accessible-label: root.italian ? "Diagnostica locale" : "Local diagnostics";
+                    check-state: root.diagnostics ? CheckState.checked : CheckState.unchecked;
+                    checked-state-changed(state) => {
+                        if (state == CheckState.checked) != root.diagnostics {
+                            root.diagnostics = state == CheckState.checked;
+                            root.diagnostics-preference();
+                        }
+                    }
+                }
+                MaterialText {
+                    text: root.italian ? "Raccogli contatori diagnostici locali" : "Collect local diagnostic counts";
+                    vertical-alignment: center;
+                }
+            }
+            if root.diagnostics-host != "" : VerticalLayout {
+                MaterialText {
+                    text: root.italian
+                        ? "Invia a \{root.diagnostics-host} solo il totale delle operazioni completate e con errori."
+                        : "Send only totals of completed and failed operations to \{root.diagnostics-host}.";
+                    wrap: word-wrap;
+                    color: MaterialPalette.on_surface_variant;
+                }
+                TextButton {
+                    horizontal-stretch: 0;
+                    enabled: root.diagnostics && !root.busy;
+                    text: root.italian ? "Invia contatori" : "Send counts";
+                    clicked => { settings.close(); root.send-diagnostics(); }
+                }
+            }
+            HorizontalLayout {
+                TextButton {
+                    enabled: root.updates-configured;
+                    text: root.italian ? "Cerca aggiornamenti" : "Check for updates";
+                    clicked => { settings.close(); root.check-update(); }
+                }
+                if root.update-version != "" : FilledButton {
+                    text: root.italian ? "Installa \{root.update-version}" : "Install \{root.update-version}";
+                    clicked => { settings.close(); root.install-update(); }
+                }
+            }
+        }
+    }
+
+    portable-dialog := Dialog {
+        width: root.width;
+        height: root.height;
+        title: root.italian ? "Aggiungi app portatile" : "Add portable app";
+        actions: [root.italian ? "Annulla" : "Cancel", root.italian ? "Aggiungi" : "Add"];
+        action-clicked(index) => {
+            if index == 1 { root.add-portable(portable-path.text); }
+            self.close();
+        }
+        portable-path := TextField {
+            width: 488px;
+            label: root.italian ? "Percorso completo del file .exe" : "Full path to the .exe";
+        }
+    }
+
+    confirmation := ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: root.confirmation-label;
+        italian: root.italian;
+        details: root.confirmation-detail;
+        offer-review: root.offer-leftover-review;
+        review-after <=> root.confirmation-review;
+        confirmed(review) => { root.confirm-action(review); }
+    }
+
+    report := ReportPanel {
+        width: root.width;
+        height: root.height;
+        italian: root.italian;
+        report-text: root.report-text;
+        has-newer: root.report-offset > 0;
+        has-older: root.report-has-older;
+        browse(direction) => { root.browse-report(direction); }
     }
 }

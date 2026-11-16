@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Sakura Uninstaller" Manufacturer="Sakura Uninstaller"
+           Version="$(Version)" UpgradeCode="9F8755C2-1DEF-422F-A41C-4A342A821663"
+           Scope="perUser" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer Sakura Uninstaller version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="InstallFolder" Name="SakuraUninstallerApp">
+        <Component Id="ApplicationFiles" Guid="A4F4A639-A804-45E0-913B-AD74F7103D56">
+          <File Id="SakuraExe" Name="SakuraUninstaller.exe" Source="$(Binary)" />
+          <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\SakuraUninstaller\Installer"
+                         Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="Sakura Uninstaller">
+        <Component Id="ApplicationShortcut" Guid="0242014E-27D2-496E-BDC1-A1D26D46469C">
+          <Shortcut Id="SakuraShortcut" Name="Sakura Uninstaller" Target="[InstallFolder]SakuraUninstaller.exe" WorkingDirectory="InstallFolder" />
+          <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\SakuraUninstaller\Installer"
+                         Name="Shortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main">
+      <ComponentRef Id="ApplicationFiles" />
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,40 @@
+import { Dialog, MaterialPalette, MaterialText, MaterialTypography, ScrollView, TextButton } from "@material";
+
+export component ReportPanel inherits Dialog {
+    in property <bool> italian;
+    in property <string> report-text;
+    in property <bool> has-newer;
+    in property <bool> has-older;
+    callback browse(int);
+    title: root.italian ? "Rapporto attività" : "Activity report";
+    actions: [root.italian ? "Chiudi" : "Close"];
+    action-clicked => { self.close(); }
+
+    VerticalLayout {
+        width: 582px;
+        spacing: 8px;
+        HorizontalLayout {
+            TextButton {
+                enabled: root.has-newer;
+                text: root.italian ? "Più recente" : "Newer";
+                clicked => { report-scroll.viewport-y = 0px; root.browse(-1); }
+            }
+            TextButton {
+                enabled: root.has-older;
+                text: root.italian ? "Più vecchio" : "Older";
+                clicked => { report-scroll.viewport-y = 0px; root.browse(1); }
+            }
+        }
+        report-scroll := ScrollView {
+            height: 256px;
+            content-height: max(self.height, report-body.preferred-height);
+            report-body := MaterialText {
+                width: parent.width - 16px;
+                text: root.report-text;
+                style: MaterialTypography.body_medium;
+                color: MaterialPalette.on_surface;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

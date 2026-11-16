@@ -1,0 +1,9 @@
+# Sicurezza e ripristino
+
+Sakura rilegge le registrazioni prima di avviare un disinstallatore. Per gli EXE, prepara il percorso e gli argomenti separatamente e passa il controllo dell’eventuale elevazione a Windows. I componenti di sistema e le voci marcate come protette restano escluse dalla selezione.
+
+La scansione identifica gli elementi attribuibili prima dell’esecuzione e ricontrolla la presenza dopo la rimozione. I servizi, le attività pianificate e le chiavi HKLM compaiono come esiti di sola lettura. La quarantena supporta cartelle ammesse, collegamenti personali, chiavi foglia HKCU e voci di avvio personali.
+
+I manifesti contengono le informazioni per il ripristino e la verifica SHA-256. La quarantena dei file richiede lo stesso volume. Sui volumi compatibili, Sakura usa la compressione trasparente del file system per conservare l’identità del file e i metadati. Scrive il registro di recupero prima di comprimere e salta reparse point, hard link, file cifrati o sparsi e file già compressi. Il ripristino verifica il backup e richiede una destinazione libera. Se la decompressione fallisce, Windows continua ad aprire i file compressi e Sakura registra l’esito. I backup precedenti privi di registro di compressione rimangono ripristinabili. Le regole firmate possono aggiungere protezioni a quelle già presenti nel codice.
+
+I log, le preferenze e i backup sono conservati in `%LOCALAPPDATA%\SakuraUninstaller`. La diagnostica è disattivata all’avvio iniziale. L’invio richiede un endpoint HTTPS configurato nella build, la raccolta locale attiva e un’azione esplicita in Impostazioni. La richiesta contiene la versione dello schema e due contatori, con redirect, cookie e autenticazione HTTP automatica disattivati. Il canale degli aggiornamenti verifica la firma Ed25519 del manifesto e lo SHA-256 dell’MSI.

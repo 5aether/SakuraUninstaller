@@ -1,0 +1,71 @@
+import { CheckBox, CheckState, MaterialPalette, MaterialText, MaterialTypography } from "@material";
+
+export struct Entry {
+    id: string,
+    title: string,
+    description: string,
+    size: string,
+    selectable: bool,
+    selected: bool,
+}
+
+export component AppCard {
+    in property <Entry> item;
+    in property <bool> enabled;
+    callback select(bool);
+
+    height: 66px;
+
+    Rectangle {
+        border-radius: 12px;
+        background: root.item.selected ? MaterialPalette.secondary_container : MaterialPalette.surface_container_low;
+
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 16px;
+            spacing: 6px;
+
+            CheckBox {
+                width: 48px;
+                height: 48px;
+                accessible-label: root.item.title;
+                enabled: root.enabled && root.item.selectable;
+                check-state: root.item.selected ? CheckState.checked : CheckState.unchecked;
+
+                checked-state-changed(state) => {
+                    if (state == CheckState.checked) != root.item.selected {
+                        root.select(state == CheckState.checked);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 2px;
+
+                MaterialText {
+                    text: root.item.title;
+                    style: MaterialTypography.title_medium;
+                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface;
+                    overflow: elide;
+                }
+
+                MaterialText {
+                    text: root.item.description;
+                    style: MaterialTypography.body_small;
+                    color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+                    overflow: elide;
+                    accessible-description: root.item.description;
+                }
+            }
+
+            MaterialText {
+                text: root.item.size;
+                style: MaterialTypography.label_large;
+                color: root.item.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
