@@ -13,8 +13,9 @@ import { PageTabs, TabItem } from "components/page-tabs.slint";
 import { ProgressPanel } from "components/progress-panel.slint";
 import { ReportPanel } from "components/report-panel.slint";
 import { SearchField } from "components/search-field.slint";
+import { CleanupTotals, ResidueEntry, UninstallPopup, UninstallView } from "components/uninstall-popup.slint";
 
-export { Entry }
+export { Entry, CleanupTotals, ResidueEntry, UninstallView }
 
 component TitlebarButton {
     in property <image> icon;
@@ -116,6 +117,13 @@ export component AppWindow inherits MaterialWindow {
 
     in property <bool> italian;
     in property <bool> busy;
+    in property <bool> can-stop;
+    in property <bool> stop-requested;
+    in property <bool> uninstall-open;
+    in property <UninstallView> uninstall-view;
+    in property <[ResidueEntry]> uninstall-registry;
+    in property <[ResidueEntry]> uninstall-files;
+    in property <[ResidueEntry]> uninstall-other;
     in property <bool> silent-supported;
     in property <bool> only-portable;
     in property <bool> status-error;
@@ -271,6 +279,12 @@ export component AppWindow inherits MaterialWindow {
     callback preview();
     callback prepare-action();
     callback confirm-action(bool);
+    callback stop-queue();
+    callback close-uninstall();
+    callback select-uninstall-item(string, bool);
+    callback select-uninstall-group(int, bool);
+    callback clean-uninstall();
+    callback review-uninstall-remaining();
     callback open-folder();
     callback close-window();
     callback minimize-window();
@@ -279,13 +293,13 @@ export component AppWindow inherits MaterialWindow {
     init => { MaterialPalette.schemes = SakuraTheme.schemes; }
 
     changed status => {
-        if !root.busy && root.status != "" {
+        if !root.busy && !root.uninstall-open && root.status != "" {
             notice.show();
         }
     }
 
     changed busy => {
-        if !root.busy && root.status != "" {
+        if !root.busy && !root.uninstall-open && root.status != "" {
             notice.show();
         }
     }
@@ -312,6 +326,11 @@ export component AppWindow inherits MaterialWindow {
             settings.show();
         }
     }
+
+    shell-input := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: !root.uninstall-open;
 
     shell := Rectangle {
         width: 100%;
@@ -463,7 +482,13 @@ export component AppWindow inherits MaterialWindow {
                     }
                 }
 
-                if root.busy : ProgressPanel {}
+                if root.busy : ProgressPanel {
+                    italian: root.italian;
+                    text: root.status;
+                    stoppable: root.can-stop;
+                    stopping: root.stop-requested;
+                    stop => { root.stop-queue(); }
+                }
 
                 if root.entries.length > 0 : AppList {
                     vertical-stretch: 1;
@@ -608,6 +633,8 @@ export component AppWindow inherits MaterialWindow {
 
     }
 
+    }
+
     notice := Dialog {
         width: root.width;
         height: root.height;
@@ -734,5 +761,24 @@ export component AppWindow inherits MaterialWindow {
         has-newer: root.report-offset > 0;
         has-older: root.report-has-older;
         browse(direction) => { root.browse-report(direction); }
+    }
+
+    if root.uninstall-open : UninstallPopup {
+        width: root.width;
+        height: root.height;
+        italian: root.italian;
+        view: root.uninstall-view;
+        registry-items: root.uninstall-registry;
+        file-items: root.uninstall-files;
+        other-items: root.uninstall-other;
+        status: root.status;
+        stopping: root.stop-requested;
+        stop => { root.stop-queue(); }
+        close => { root.close-uninstall(); }
+        select(id, selected) => { root.select-uninstall-item(id, selected); }
+        select-group(group, selected) => { root.select-uninstall-group(group, selected); }
+        clean => { root.clean-uninstall(); }
+        review-remaining => { root.review-uninstall-remaining(); }
+        report => { root.browse-report(0); report.show(); }
     }
 }

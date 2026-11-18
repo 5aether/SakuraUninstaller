@@ -105,7 +105,10 @@ fn compresses_ntfs_payload_and_restores_original_attributes() -> io::Result<()> 
         .join(saved[0].id.to_string())
         .join("payload");
     let archived = payload.join("large.dat");
-    assert_eq!(result.compressed, usize::from(supported && !original_flag));
+    assert_eq!(
+        result.compression.compressed,
+        usize::from(supported && !original_flag)
+    );
     assert_eq!(compressed(&archived)?, supported || original_flag);
     assert_eq!(compressed(&shared)?, shared_flag);
     assert_eq!(identity(&archived)?, file_id);

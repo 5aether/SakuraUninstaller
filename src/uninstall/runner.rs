@@ -1,4 +1,8 @@
-use super::{elevation, msi, msix, processes};
+use super::{
+    elevation, inno_setup, msi, msix, nsis, processes,
+    review::{ItemState, Progress},
+    session::{BatchControl, ExitStatus, verify_removal},
+};
 use crate::{
     reporting::report::Message,
     safety::quarantine::Saved,
@@ -14,10 +18,13 @@ use crate::{
         strings::expand,
     },
 };
-use std::{ffi::OsStr, io, path::PathBuf};
+use std::{ffi::OsStr, io, path::PathBuf, time::Duration};
 use uuid::Uuid;
 
 pub(crate) fn split(command: &str) -> Option<(&str, &str)> {
+    if command.contains('\0') {
+        return None;
+    }
     let command = command.trim();
     if let Some(quoted) = command.strip_prefix('"') {
         let (exe, args) = quoted.split_once('"')?;
@@ -47,15 +54,11 @@ pub fn prepare(app: &App, quiet: bool) -> io::Result<Launch> {
             "Protected or unregistered application",
         ));
     }
-    if let Some(code) = app.msi.as_deref().filter(|code| msi::is_product_code(code)) {
+    if let Some(code) = app.msi.as_deref() {
         return msi::removal(code, quiet);
     }
-    let command = if quiet {
-        app.quiet_command.as_deref()
-    } else {
-        app.command.as_deref()
-    };
-    let command = expand(command.ok_or_else(|| io::Error::other("No registered command"))?)?;
+    let command = registered_command(app, quiet)?;
+    let command = expand(command)?;
     let (exe, arguments) =
         split(&command).ok_or_else(|| io::Error::other("Invalid uninstall command"))?;
     let executable = PathBuf::from(exe);
@@ -94,10 +97,36 @@ pub fn prepare(app: &App, quiet: bool) -> io::Result<Launch> {
     {
         return Err(io::Error::other("Unsupported uninstall location"));
     }
+    let arguments = if quiet && app.quiet_command.is_none() {
+        match app.installer.as_str() {
+            "Inno Setup" => inno_setup::quiet_arguments(arguments),
+            "NSIS" => nsis::quiet_arguments(arguments),
+            _ => return Err(io::Error::other("No registered quiet command")),
+        }
+    } else {
+        arguments.to_owned()
+    };
     Ok(Launch {
         executable: resolved,
-        arguments: arguments.to_owned(),
+        arguments,
     })
+}
+
+fn registered_command(app: &App, quiet: bool) -> io::Result<&str> {
+    let command = if quiet {
+        app.quiet_command.as_deref().or_else(|| {
+            matches!(app.installer.as_str(), "Inno Setup" | "NSIS")
+                .then_some(app.command.as_deref())
+                .flatten()
+        })
+    } else {
+        app.command.as_deref()
+    }
+    .ok_or_else(|| io::Error::other("No registered command for the selected mode"))?;
+    if command.trim().is_empty() || command.contains('\0') {
+        return Err(io::Error::other("Invalid uninstall command"));
+    }
+    Ok(command)
 }
 
 pub enum Job {
@@ -165,6 +194,10 @@ pub struct Outcome {
     pub measured: Option<std::collections::HashMap<String, u64>>,
     pub update: Option<Option<updates::Update>>,
     pub installer_started: bool,
+    pub cancelled: bool,
+    pub restart_required: bool,
+    pub removed_app_ids: Vec<String>,
+    pub quarantined: Vec<Candidate>,
 }
 
 impl Outcome {
@@ -175,7 +208,13 @@ impl Outcome {
     }
 }
 
-pub fn execute(locations: &Locations, job: Job, previous: Vec<Candidate>) -> Outcome {
+pub fn execute(
+    locations: &Locations,
+    job: Job,
+    previous: Vec<Candidate>,
+    control: &BatchControl,
+    progress: &mut dyn FnMut(Progress),
+) -> Outcome {
     let mut outcome = Outcome::default();
     let previous = match locations.reviews() {
         Ok(saved) => saved,
@@ -235,11 +274,15 @@ pub fn execute(locations: &Locations, job: Job, previous: Vec<Candidate>) -> Out
         Job::Uninstall(apps, quiet, profile, review_leftovers) => uninstall(
             locations,
             &apps,
-            quiet,
-            profile,
-            review_leftovers,
+            UninstallOptions {
+                quiet,
+                profile,
+                review_leftovers,
+            },
             &mut reviews,
             &mut outcome,
+            control,
+            progress,
         ),
         Job::Measure(apps) => {
             use crate::storage::cache::measurement_fingerprint;
@@ -278,7 +321,17 @@ pub fn execute(locations: &Locations, job: Job, previous: Vec<Candidate>) -> Out
         }
         Job::AddPortable(path) => locations.add_portable(&path),
         Job::CloseApps(apps) => close_apps(locations, &apps, &mut outcome),
-        Job::Quarantine(items) => quarantine(locations, &items, &mut outcome),
+        Job::Quarantine(items) => {
+            quarantine(
+                locations,
+                &items,
+                &mut outcome,
+                control,
+                progress,
+                inventory::scan,
+            );
+            Ok(())
+        }
         Job::Restore(ids) => {
             for id in ids {
                 match locations.restore(id) {
@@ -349,21 +402,56 @@ pub fn execute(locations: &Locations, job: Job, previous: Vec<Candidate>) -> Out
             outcome.error("report", error);
         }
     }
-    if record_report && let Err(error) = locations.measure_event(!outcome.failed) {
+    if record_report
+        && (!outcome.cancelled || outcome.failed)
+        && let Err(error) = locations.measure_event(!outcome.failed)
+    {
         outcome.error("diagnostic-counts.json", error);
     }
-    if outcome.failed {
-        outcome.status = Some(Message::new(
-            "Alcune operazioni richiedono attenzione. Apri Rapporti.",
-            "Some operations need attention. Open Reports.",
-        ));
-    } else if outcome.status.is_none() && !outcome.report.is_empty() {
-        outcome.status = Some(Message::new(
-            "Operazione completata. Il rapporto è disponibile.",
-            "Operation completed. A report is available.",
-        ));
-    }
+    outcome.finish_status();
     outcome
+}
+
+impl Outcome {
+    fn finish_status(&mut self) {
+        if self.failed {
+            self.status = Some(Message::new(
+                if self.restart_required {
+                    "Alcune operazioni richiedono attenzione ed è richiesto un riavvio. Apri Rapporti."
+                } else {
+                    "Alcune operazioni richiedono attenzione. Apri Rapporti."
+                },
+                if self.restart_required {
+                    "Some operations need attention and a restart is required. Open Reports."
+                } else {
+                    "Some operations need attention. Open Reports."
+                },
+            ));
+        } else if self.cancelled {
+            self.status = Some(Message::new(
+                if self.restart_required {
+                    "Coda interrotta. È richiesto un riavvio. Apri Rapporti."
+                } else {
+                    "Coda interrotta. Apri Rapporti per gli esiti."
+                },
+                if self.restart_required {
+                    "Queue stopped. A restart is required. Open Reports."
+                } else {
+                    "Queue stopped. Open Reports for the results."
+                },
+            ));
+        } else if self.restart_required {
+            self.status = Some(Message::new(
+                "È richiesto un riavvio per completare la disinstallazione. Apri Rapporti.",
+                "A restart is required to complete uninstallation. Open Reports.",
+            ));
+        } else if self.status.is_none() && !self.report.is_empty() {
+            self.status = Some(Message::new(
+                "Operazione completata. Il rapporto è disponibile.",
+                "Operation completed. A report is available.",
+            ));
+        }
+    }
 }
 
 fn close_apps(locations: &Locations, apps: &[App], outcome: &mut Outcome) -> io::Result<()> {
@@ -437,6 +525,8 @@ fn current<'a>(inventory: &'a [App], selected: &App) -> io::Result<&'a App> {
                 && app.quiet_command == selected.quiet_command
                 && app.msi == selected.msi
                 && app.package == selected.package
+                && app.location == selected.location
+                && app.installer == selected.installer
                 && app.removable()
         })
         .ok_or_else(|| io::Error::other("Registration changed. Refresh and review the selection."))
@@ -449,6 +539,12 @@ enum Operation {
 
 impl Operation {
     fn prepare(app: &App, quiet: bool) -> io::Result<Self> {
+        if !app.removable() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Protected application",
+            ));
+        }
         match &app.package {
             Some(full_name) => Ok(Self::Package(full_name.clone())),
             None => prepare(app, quiet).map(Self::Exe),
@@ -457,7 +553,11 @@ impl Operation {
 
     fn label(&self) -> String {
         match self {
-            Self::Exe(launch) => launch.executable.to_string_lossy().into_owned(),
+            Self::Exe(launch) => {
+                format!("\"{}\" {}", launch.executable.display(), launch.arguments)
+                    .trim_end()
+                    .to_owned()
+            }
             Self::Package(name) => format!("MSIX · {name}"),
         }
     }
@@ -539,19 +639,103 @@ fn preview(
     Ok(())
 }
 
-fn uninstall(
-    locations: &Locations,
-    apps: &[App],
+struct UninstallOptions {
     quiet: bool,
     profile: Profile,
     review_leftovers: bool,
+}
+
+fn report_unstarted(outcome: &mut Outcome, count: usize) {
+    if count != 0 {
+        outcome.report.push(Message::new(
+            format!("Programmi non avviati: {count}."),
+            format!("Programs not started: {count}."),
+        ));
+    }
+}
+
+fn batch_progress(
+    progress: &mut dyn FnMut(Progress),
+    index: usize,
+    total: usize,
+    app: &App,
+    stage: Message,
+) {
+    progress(Progress::for_app(
+        Message::new(
+            format!(
+                "{}/{total} · {} — {}",
+                index + 1,
+                app.name,
+                stage.text(true)
+            ),
+            format!(
+                "{}/{total} · {} — {}",
+                index + 1,
+                app.name,
+                stage.text(false)
+            ),
+        ),
+        app,
+    ));
+}
+
+fn inventory_for(app: &App) -> io::Result<Vec<App>> {
+    let (installed, warning) = inventory::full()?;
+    if app.package.is_some()
+        && let Some(error) = warning
+    {
+        return Err(io::Error::other(format!(
+            "MSIX inventory unavailable: {error}"
+        )));
+    }
+    Ok(installed)
+}
+
+fn uninstall(
+    locations: &Locations,
+    apps: &[App],
+    options: UninstallOptions,
     reviews: &mut Vec<Candidate>,
     outcome: &mut Outcome,
+    control: &BatchControl,
+    progress: &mut dyn FnMut(Progress),
 ) -> io::Result<()> {
+    let UninstallOptions {
+        quiet,
+        profile,
+        review_leftovers,
+    } = options;
     let portable = locations.portables()?;
-    for requested in apps {
-        let installed = inventory::scan()?;
+    for (index, requested) in apps.iter().enumerate() {
+        if control.stop_requested() {
+            outcome.cancelled = true;
+            report_unstarted(outcome, apps.len() - index);
+            break;
+        }
+        batch_progress(
+            progress,
+            index,
+            apps.len(),
+            requested,
+            Message::new("verifica e backup…", "checking and backing up…"),
+        );
+        let installed = match inventory_for(requested) {
+            Ok(installed) => installed,
+            Err(error) => {
+                outcome.error(&requested.name, error);
+                report_unstarted(outcome, apps.len() - index);
+                break;
+            }
+        };
         if requested.portable {
+            let Some(app) = portable.iter().find(|app| *app == requested) else {
+                outcome.error(
+                    &requested.name,
+                    "Portable registration changed. Refresh and review the selection.",
+                );
+                continue;
+            };
             if !review_leftovers {
                 outcome.report.push(Message::new(
                     format!("{} — app portatile senza disinstallatore.", requested.name),
@@ -559,19 +743,17 @@ fn uninstall(
                 ));
                 continue;
             }
-            if let Some(app) = portable.iter().find(|app| *app == requested) {
-                let candidates = leftovers::snapshot(locations, app, &installed, profile);
-                let count = candidates.len();
-                reviews.retain(|item| item.app_id != requested.id);
-                reviews.extend(candidates);
-                outcome.report.push(Message::new(
-                    format!(
-                        "{} — app portatile, {count} elementi da esaminare.",
-                        app.name
-                    ),
-                    format!("{} — portable app, {count} items to review.", app.name),
-                ));
-            }
+            let candidates = leftovers::snapshot(locations, app, &installed, profile);
+            let count = candidates.len();
+            reviews.retain(|item| item.app_id != requested.id);
+            reviews.extend(candidates);
+            outcome.report.push(Message::new(
+                format!(
+                    "{} — app portatile, {count} elementi da esaminare.",
+                    app.name
+                ),
+                format!("{} — portable app, {count} items to review.", app.name),
+            ));
             continue;
         }
         let result = current(&installed, requested).and_then(|app| {
@@ -587,7 +769,17 @@ fn uninstall(
             }
             let before = leftovers::snapshot(locations, app, &installed, profile);
             locations.backup_before_uninstall(&before)?;
+            if control.stop_requested() {
+                return Ok(None);
+            }
             locations.log("uninstall", &app.name, "pending")?;
+            batch_progress(
+                progress,
+                index,
+                apps.len(),
+                app,
+                Message::new("disinstallazione in corso…", "uninstalling…"),
+            );
             let exit = launch.run();
             let record = match &exit {
                 Ok(code) => format!("exit {code}"),
@@ -599,91 +791,196 @@ fn uninstall(
             exit.map(|code| Some((code, before)))
         });
         match result {
-            Ok(Some((0, before))) => {
-                let after = inventory::scan()?;
-                if after.iter().any(|app| app.id == requested.id) {
+            Ok(Some((code, before))) => match ExitStatus::classify(code, requested.msi.is_some()) {
+                ExitStatus::Completed | ExitStatus::RestartRequired => {
+                    let restart = code == 3010;
+                    outcome.restart_required |= restart;
+                    if restart {
+                        outcome.report.push(Message::new(
+                            format!(
+                                "{} — Windows Installer richiede il riavvio (codice {code}).",
+                                requested.name
+                            ),
+                            format!(
+                                "{} — Windows Installer requires a restart (code {code}).",
+                                requested.name
+                            ),
+                        ));
+                    }
+                    batch_progress(
+                        progress,
+                        index,
+                        apps.len(),
+                        requested,
+                        Message::new("verifica della rimozione…", "verifying removal…"),
+                    );
+                    let after = match verify_removal(
+                        requested,
+                        || inventory::full_cached(&installed),
+                        if restart { 1 } else { 31 },
+                        Duration::from_millis(500),
+                    ) {
+                        Ok(after) => after,
+                        Err(error) => {
+                            outcome.error(&requested.name, error);
+                            continue;
+                        }
+                    };
+                    let Some(after) = after else {
+                        if restart {
+                            outcome.report.push(Message::new(
+                            format!("{} — rimozione da verificare dopo il riavvio; residui non proposti.", requested.name),
+                            format!("{} — verify removal after restarting; no leftovers proposed.", requested.name),
+                        ));
+                            continue;
+                        }
+                        outcome.failed = true;
+                        outcome.report.push(Message::new(
+                        format!(
+                            "{} — il disinstallatore ha terminato, ma la voce è ancora registrata. Aggiorna l’elenco o riprova; residui non proposti.",
+                            requested.name
+                        ),
+                        format!(
+                            "{} — the uninstaller exited, but the entry is still registered. Refresh or retry; no leftovers proposed.",
+                            requested.name
+                        ),
+                    ));
+                        continue;
+                    };
+                    outcome.removed_app_ids.push(requested.id.clone());
+                    if review_leftovers {
+                        batch_progress(
+                            progress,
+                            index,
+                            apps.len(),
+                            requested,
+                            Message::new("ricerca dei residui…", "scanning leftovers…"),
+                        );
+                        let remaining = leftovers::remaining(locations, &before, &after);
+                        let count = remaining.len();
+                        reviews.retain(|item| item.app_id != requested.id);
+                        reviews.extend(remaining);
+                        outcome.report.push(Message::new(
+                            format!(
+                                "{} — voce rimossa, {count} elementi da esaminare.",
+                                requested.name
+                            ),
+                            format!(
+                                "{} — entry removed, {count} items to review.",
+                                requested.name
+                            ),
+                        ));
+                    } else {
+                        outcome.report.push(Message::new(
+                            format!("{} — voce rimossa.", requested.name),
+                            format!("{} — entry removed.", requested.name),
+                        ));
+                    }
+                }
+                ExitStatus::RestartInitiated => {
+                    outcome.restart_required = true;
+                    outcome.report.push(Message::new(
+                        format!(
+                            "{} — Windows Installer ha avviato il riavvio. Coda interrotta.",
+                            requested.name
+                        ),
+                        format!(
+                            "{} — Windows Installer initiated a restart. Queue stopped.",
+                            requested.name
+                        ),
+                    ));
+                    report_unstarted(outcome, apps.len() - index - 1);
+                    break;
+                }
+                ExitStatus::Cancelled => {
+                    outcome.cancelled = true;
+                    outcome.report.push(Message::new(
+                        format!("{} — disinstallazione annullata.", requested.name),
+                        format!("{} — uninstall cancelled.", requested.name),
+                    ));
+                    report_unstarted(outcome, apps.len() - index - 1);
+                    break;
+                }
+                ExitStatus::Failed(code) => {
                     outcome.failed = true;
                     outcome.report.push(Message::new(
                         format!(
-                            "{} — il disinstallatore ha terminato, ma la voce è ancora registrata.",
+                            "{} — il disinstallatore ha restituito il codice {code}.",
                             requested.name
                         ),
                         format!(
-                            "{} — the uninstaller exited, but the entry is still registered.",
+                            "{} — the uninstaller returned exit code {code}.",
                             requested.name
                         ),
                     ));
-                } else if review_leftovers {
-                    let remaining = leftovers::remaining(locations, &before, &after);
-                    let count = remaining.len();
-                    reviews.retain(|item| item.app_id != requested.id);
-                    reviews.extend(remaining);
-                    outcome.report.push(Message::new(
-                        format!(
-                            "{} — voce rimossa, {count} elementi da esaminare.",
-                            requested.name
-                        ),
-                        format!(
-                            "{} — entry removed, {count} items to review.",
-                            requested.name
-                        ),
+                    if requested.msi.is_some() && code == 1618 {
+                        outcome.report.push(Message::new(
+                        "Un’altra installazione è in corso. Attendi che termini e riprova. Coda interrotta.",
+                        "Another installation is in progress. Wait for it to finish and retry. Queue stopped.",
                     ));
-                } else {
-                    outcome.report.push(Message::new(
-                        format!("{} — voce rimossa.", requested.name),
-                        format!("{} — entry removed.", requested.name),
-                    ));
+                        report_unstarted(outcome, apps.len() - index - 1);
+                        break;
+                    }
                 }
-            }
-            Ok(Some((1641 | 3010, _))) if requested.msi.is_some() => {
-                outcome.report.push(Message::new(
-                    format!(
-                        "{} — Windows Installer richiede il riavvio.",
-                        requested.name
-                    ),
-                    format!("{} — Windows Installer requires a restart.", requested.name),
-                ))
-            }
-            Ok(Some((1602 | 1223, _))) => {
-                outcome.report.push(Message::new(
-                    format!("{} — disinstallazione annullata.", requested.name),
-                    format!("{} — uninstall cancelled.", requested.name),
-                ));
+            },
+            Ok(None) if control.stop_requested() => {
+                outcome.cancelled = true;
+                report_unstarted(outcome, apps.len() - index);
                 break;
-            }
-            Ok(Some((code, _))) => {
-                outcome.failed = true;
-                outcome.report.push(Message::new(
-                    format!(
-                        "{} — il disinstallatore ha restituito il codice {code}.",
-                        requested.name
-                    ),
-                    format!(
-                        "{} — the uninstaller returned exit code {code}.",
-                        requested.name
-                    ),
-                ));
             }
             Ok(None) => (),
             Err(error) if error.raw_os_error() == Some(1223) => {
+                outcome.cancelled = true;
                 outcome.report.push(Message::new(
                     "Richiesta di Windows annullata.",
                     "Windows request cancelled.",
                 ));
+                report_unstarted(outcome, apps.len() - index - 1);
                 break;
             }
             Err(error) => outcome.error(&requested.name, error),
         }
     }
+    if outcome.cancelled {
+        outcome.report.push(Message::new(
+            "Coda di disinstallazione interrotta.",
+            "Uninstall queue stopped.",
+        ));
+    }
     Ok(())
 }
 
-fn quarantine(locations: &Locations, items: &[Candidate], outcome: &mut Outcome) -> io::Result<()> {
-    for item in items {
-        let inventory = inventory::scan()?;
+fn quarantine(
+    locations: &Locations,
+    items: &[Candidate],
+    outcome: &mut Outcome,
+    control: &BatchControl,
+    progress: &mut dyn FnMut(Progress),
+    mut scan: impl FnMut() -> io::Result<Vec<App>>,
+) {
+    for (index, item) in items.iter().enumerate() {
+        if control.stop_requested() {
+            outcome.cancelled = true;
+            let count = items.len() - index;
+            outcome.report.push(Message::new(
+                format!("Pulizia interrotta. Elementi non elaborati: {count}."),
+                format!("Cleanup stopped. Items not processed: {count}."),
+            ));
+            break;
+        }
         let path = item.path.to_string_lossy();
-        match locations.quarantine(item, &inventory) {
-            Ok(summary) => {
+        progress(Progress::for_item(
+            Message::new(
+                format!("{}/{} · {path}", index + 1, items.len()),
+                format!("{}/{} · {path}", index + 1, items.len()),
+            ),
+            item,
+            ItemState::Cleaning,
+        ));
+        let result = scan().and_then(|inventory| locations.quarantine(item, &inventory));
+        match result {
+            Ok(receipt) => {
+                let summary = receipt.compression;
                 let mut it = format!("{path} — spostato in quarantena");
                 let mut en = format!("{path} — moved to quarantine");
                 if summary.compressed != 0 {
@@ -694,12 +991,26 @@ fn quarantine(locations: &Locations, items: &[Candidate], outcome: &mut Outcome)
                     it.push_str(" · compressione parziale, file disponibili");
                     en.push_str(" · partial compression, files available");
                 }
-                outcome.report.push(Message::new(it, en));
+                let message = Message::new(it, en);
+                progress(Progress::for_item(
+                    message.clone(),
+                    item,
+                    ItemState::Quarantined,
+                ));
+                outcome.report.push(message);
+                outcome.quarantined.push(receipt.item);
             }
-            Err(error) => outcome.error(&path, error),
+            Err(error) => {
+                let details = format!("{path}: {error}");
+                progress(Progress::for_item(
+                    Message::new(&details, &details),
+                    item,
+                    ItemState::Failed,
+                ));
+                outcome.error(&path, error);
+            }
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]

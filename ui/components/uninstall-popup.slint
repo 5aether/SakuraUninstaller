@@ -1,0 +1,434 @@
+import {
+    CheckBox, CheckState, CircularProgressIndicator, FilledButton, Icon,
+    LinearProgressIndicator, MaterialPalette, MaterialText, MaterialTypography,
+    ScrollView, StateLayerArea, TextButton,
+} from "@material";
+
+export struct ResidueEntry {
+    id: string,
+    path: string,
+    description: string,
+    size: string,
+    selected: bool,
+    selectable: bool,
+    status: int,
+}
+
+export struct CleanupTotals {
+    registry: int,
+    files: int,
+    other: int,
+    bytes: string,
+}
+
+export struct UninstallView {
+    phase: int,
+    program: string,
+    icon: image,
+    removed: int,
+    cleanup-total: int,
+    cleanup-processed: int,
+    active-group: int,
+    detected: CleanupTotals,
+    selected: CleanupTotals,
+    available: CleanupTotals,
+    cleaned: CleanupTotals,
+    failed: bool,
+    cancelled: bool,
+    summary: string,
+}
+
+component SummaryCard inherits Rectangle {
+    in property <image> icon;
+    in property <string> value;
+    in property <string> label;
+    in property <string> detail;
+    height: 84px;
+    border-radius: 16px;
+    background: MaterialPalette.surface_container;
+
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 10px;
+        Icon { width: 24px; source: root.icon; colorize: MaterialPalette.primary; }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            MaterialText { text: root.value; style: MaterialTypography.title_large; color: MaterialPalette.primary; }
+            MaterialText { text: root.label; style: MaterialTypography.label_medium; }
+            if root.detail != "" : MaterialText {
+                text: root.detail;
+                style: MaterialTypography.body_small;
+                color: MaterialPalette.on_surface_variant;
+            }
+        }
+    }
+}
+
+component ResidueRow inherits Rectangle {
+    in property <ResidueEntry> item;
+    in property <bool> reviewing;
+    in property <bool> italian;
+    callback select(bool);
+    height: max(66px, row.preferred-height);
+    background: root.item.status == 1 ? MaterialPalette.primary_container : transparent;
+
+    row := HorizontalLayout {
+        padding-left: 22px;
+        padding-right: 12px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+        spacing: 8px;
+        CheckBox {
+            width: 40px;
+            height: 40px;
+            accessible-label: root.item.path;
+            enabled: root.reviewing && root.item.selectable;
+            check-state: root.item.selected ? CheckState.checked : CheckState.unchecked;
+            checked-state-changed(state) => {
+                if (state == CheckState.checked) != root.item.selected {
+                    root.select(state == CheckState.checked);
+                }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 3px;
+            MaterialText {
+                text: root.item.path;
+                style: MaterialTypography.body_medium;
+                wrap: word-wrap;
+            }
+            MaterialText {
+                text: root.item.description;
+                style: MaterialTypography.body_small;
+                color: root.item.status == 3 ? MaterialPalette.error : MaterialPalette.on_surface_variant;
+                wrap: word-wrap;
+            }
+        }
+        if root.item.size != "" : MaterialText {
+            text: root.item.size;
+            style: MaterialTypography.label_medium;
+            color: MaterialPalette.on_surface_variant;
+            vertical-alignment: center;
+        }
+        if root.item.status == 1 : CircularProgressIndicator { width: 20px; height: 20px; indeterminate: true; }
+        if root.item.status == 2 : Icon { width: 20px; source: @image-url("../icons/check.svg"); colorize: MaterialPalette.primary; }
+        if root.item.status == 3 : MaterialText { text: "!"; color: MaterialPalette.error; vertical-alignment: center; }
+    }
+}
+
+component ResidueSection inherits VerticalLayout {
+    in property <string> title;
+    in property <image> icon;
+    in property <[ResidueEntry]> items;
+    in property <int> selected;
+    in property <int> available;
+    in property <bool> reviewing;
+    in property <bool> italian;
+    in-out property <bool> expanded: true;
+    callback select(string, bool);
+    callback select-all(bool);
+    spacing: 0px;
+
+    Rectangle {
+        height: 44px;
+        background: MaterialPalette.surface_container;
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 12px;
+            spacing: 4px;
+            StateLayerArea {
+                width: 28px;
+                accessible-role: button;
+                accessible-label: root.title;
+                accessible-action-default => { root.expanded = !root.expanded; }
+                clicked => { root.expanded = !root.expanded; }
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 16px;
+                    source: root.expanded ? @image-url("../icons/caret_down.svg") : @image-url("../icons/caret_up.svg");
+                    colorize: MaterialPalette.on_surface_variant;
+                }
+            }
+            CheckBox {
+                width: 40px;
+                height: 40px;
+                accessible-label: root.title;
+                enabled: root.reviewing && root.available > 0;
+                check-state: root.selected == 0 ? CheckState.unchecked
+                    : root.selected == root.available ? CheckState.checked : CheckState.partially-checked;
+                checked-state-changed(state) => { root.select-all(state != CheckState.unchecked); }
+            }
+            Icon { width: 20px; source: root.icon; colorize: MaterialPalette.primary; }
+            MaterialText {
+                text: "\{root.title} (\{root.items.length})";
+                style: MaterialTypography.title_small;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+    if root.expanded : VerticalLayout {
+        spacing: 0px;
+        for item in root.items : ResidueRow {
+            item: item;
+            reviewing: root.reviewing;
+            italian: root.italian;
+            select(selected) => { root.select(item.id, selected); }
+        }
+        if root.items.length == 0 : MaterialText {
+            text: root.italian ? "Nessun elemento rilevato" : "No items detected";
+            style: MaterialTypography.body_small;
+            color: MaterialPalette.on_surface_variant;
+            height: 32px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component UninstallPopup inherits Rectangle {
+    in property <bool> italian;
+    in property <UninstallView> view;
+    in property <[ResidueEntry]> registry-items;
+    in property <[ResidueEntry]> file-items;
+    in property <[ResidueEntry]> other-items;
+    in property <string> status;
+    in property <bool> stopping;
+    callback stop();
+    callback close();
+    callback select(string, bool);
+    callback select-group(int, bool);
+    callback clean();
+    callback review-remaining();
+    callback report();
+    private property <bool> working: root.view.phase == 0 || root.view.phase == 2;
+    private property <int> selected-count: root.view.selected.registry + root.view.selected.files + root.view.selected.other;
+    private property <int> available-count: root.view.available.registry + root.view.available.files + root.view.available.other;
+    background: #00000066;
+    forward-focus: keys;
+    init => { keys.focus(); }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if !root.working { root.close(); }
+                return accept;
+            }
+            reject
+        }
+    }
+    TouchArea { width: 100%; height: 100%; }
+
+    card := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(700px, parent.width - 32px);
+        height: min(root.view.phase == 0 ? 520px : 640px, parent.height - 32px);
+        border-radius: 24px;
+        background: MaterialPalette.surface_container_low;
+        border-width: 1px;
+        border-color: MaterialPalette.outline_variant;
+        clip: true;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+
+            HorizontalLayout {
+                height: 36px;
+                spacing: 10px;
+                if root.view.phase == 0 || (!root.view.failed && !root.view.cancelled) : Icon {
+                    width: 24px;
+                    source: root.view.phase == 0 ? @image-url("../icons/delete.svg") : @image-url("../icons/check.svg");
+                    colorize: root.view.failed ? MaterialPalette.error : MaterialPalette.primary;
+                }
+                if root.view.phase != 0 && (root.view.failed || root.view.cancelled) : MaterialText {
+                    text: "!";
+                    width: 24px;
+                    style: MaterialTypography.title_large;
+                    color: MaterialPalette.error;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                MaterialText {
+                    text: root.view.phase == 0 ? (root.italian ? "Disinstallazione" : "Uninstalling")
+                        : root.view.phase == 1 ? (root.italian ? "Residui da esaminare" : "Review leftovers")
+                        : root.view.phase == 2 ? (root.italian ? "Pulizia in corso" : "Cleaning up")
+                        : (root.italian ? "Riepilogo disinstallazione" : "Uninstall summary");
+                    style: MaterialTypography.title_large;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                if !root.working : TextButton {
+                    icon: @image-url("../icons/close.svg");
+                    tooltip: root.italian ? "Chiudi" : "Close";
+                    clicked => { root.close(); }
+                }
+            }
+
+            if root.view.phase == 0 : VerticalLayout {
+                alignment: center;
+                spacing: 20px;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 160px;
+                        height: 160px;
+                        CircularProgressIndicator { width: 160px; height: 160px; indeterminate: true; }
+                        if root.view.icon.width > 0 : Image {
+                            x: 48px; y: 48px; width: 64px; height: 64px;
+                            source: root.view.icon;
+                            image-fit: contain;
+                        }
+                        if root.view.icon.width == 0 : Icon {
+                            x: 56px; y: 56px; width: 48px;
+                            source: @image-url("../icons/install_desktop.svg");
+                            colorize: MaterialPalette.primary;
+                        }
+                    }
+                }
+                MaterialText {
+                    text: root.view.program;
+                    style: MaterialTypography.headline_small;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+                MaterialText {
+                    text: root.status;
+                    horizontal-alignment: center;
+                    color: MaterialPalette.on_surface_variant;
+                    wrap: word-wrap;
+                }
+                if root.stopping : MaterialText {
+                    text: root.italian ? "Attendo il completamento del programma corrente…" : "Waiting for the current program to finish…";
+                    style: MaterialTypography.body_small;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.view.phase != 0 : VerticalLayout {
+                spacing: 10px;
+                MaterialText {
+                    text: root.view.phase == 2 ? root.status : root.view.summary;
+                    style: MaterialTypography.body_medium;
+                    color: root.view.failed ? MaterialPalette.error : MaterialPalette.on_surface_variant;
+                    wrap: word-wrap;
+                    max-height: 42px;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    SummaryCard {
+                        icon: @image-url("../icons/install_desktop.svg");
+                        value: "\{root.view.removed}";
+                        label: root.italian ? "Programmi rimossi" : "Programs removed";
+                    }
+                    SummaryCard {
+                        icon: @image-url("../icons/registry.svg");
+                        value: root.view.phase == 3 ? "\{root.view.cleaned.registry}" : "\{root.view.detected.registry}";
+                        label: root.italian ? "Registro" : "Registry";
+                        detail: root.view.phase == 3 ? (root.italian ? "in quarantena" : "quarantined") : (root.italian ? "voci rilevate" : "entries detected");
+                    }
+                    SummaryCard {
+                        icon: @image-url("../icons/folder.svg");
+                        value: root.view.phase == 3 ? "\{root.view.cleaned.files}" : "\{root.view.detected.files}";
+                        label: root.italian ? "File e cartelle" : "Files and folders";
+                        detail: root.view.phase == 3 ? root.view.cleaned.bytes : root.view.detected.bytes;
+                    }
+                }
+                if root.view.phase == 2 : LinearProgressIndicator {
+                    progress: root.view.cleanup-total > 0 ? 1.0 * root.view.cleanup-processed / root.view.cleanup-total : 0;
+                }
+
+                residue-scroll := ScrollView {
+                    property <int> active-group: root.view.active-group;
+                    changed active-group => { if root.view.phase == 2 { self.content-y = 0px; } }
+                    min-height: 90px;
+                    vertical-stretch: 1;
+                    content-height: max(self.height, contents.height);
+                    contents := Rectangle {
+                        width: parent.width;
+                        height: groups.preferred-height;
+                        groups := VerticalLayout {
+                            width: parent.width;
+                            spacing: 4px;
+                            ResidueSection {
+                                title: root.italian ? "Registro" : "Registry";
+                                icon: @image-url("../icons/registry.svg");
+                                items: root.registry-items;
+                                expanded: root.view.phase == 2 && root.view.active-group == 0;
+                                selected: root.view.selected.registry;
+                                available: root.view.available.registry;
+                                reviewing: root.view.phase == 1;
+                                italian: root.italian;
+                                select(id, selected) => { root.select(id, selected); }
+                                select-all(selected) => { root.select-group(0, selected); }
+                            }
+                            ResidueSection {
+                                title: root.italian ? "File e cartelle" : "Files and folders";
+                                icon: @image-url("../icons/folder.svg");
+                                items: root.file-items;
+                                expanded: root.view.phase != 2 || root.view.active-group == 1;
+                                selected: root.view.selected.files;
+                                available: root.view.available.files;
+                                reviewing: root.view.phase == 1;
+                                italian: root.italian;
+                                select(id, selected) => { root.select(id, selected); }
+                                select-all(selected) => { root.select-group(1, selected); }
+                            }
+                            if root.other-items.length > 0 : ResidueSection {
+                                title: root.italian ? "Altre integrazioni · solo rapporto" : "Other integrations · report only";
+                                icon: @image-url("../icons/gear.svg");
+                                items: root.other-items;
+                                selected: 0;
+                                available: 0;
+                                reviewing: false;
+                                italian: root.italian;
+                            }
+                        }
+                    }
+                }
+                MaterialText {
+                    text: root.view.phase == 1
+                        ? (root.italian ? "\{root.selected-count} selezionati · \{root.view.selected.bytes}. La pulizia sposta gli elementi in quarantena: puoi ripristinarli."
+                            : "\{root.selected-count} selected · \{root.view.selected.bytes}. Cleanup moves items to quarantine so you can restore them.")
+                        : root.view.phase == 2
+                            ? (root.stopping ? (root.italian ? "Attendo l’elemento corrente, poi interrompo la pulizia…" : "Waiting for the current item before stopping cleanup…")
+                                : (root.italian ? "Ogni elemento viene verificato prima della rimozione." : "Each item is verified before removal."))
+                        : (root.italian ? "Il segno di spunta indica gli elementi spostati in quarantena. Il ripristino è disponibile nella scheda Quarantena."
+                            : "Check marks identify items moved to quarantine. Restore them from the Quarantine tab.");
+                    style: MaterialTypography.body_small;
+                    color: MaterialPalette.on_surface_variant;
+                    wrap: word-wrap;
+                }
+            }
+
+            HorizontalLayout {
+                height: 40px;
+                spacing: 8px;
+                if !root.working : TextButton { text: root.italian ? "Rapporto" : "Report"; clicked => { root.report(); } }
+                Rectangle { horizontal-stretch: 1; }
+                if root.working : TextButton {
+                    text: root.stopping ? (root.italian ? "Interruzione richiesta" : "Stop requested")
+                        : root.view.phase == 2 ? (root.italian ? "Interrompi pulizia" : "Stop cleanup")
+                        : (root.italian ? "Interrompi coda" : "Stop queue");
+                    enabled: !root.stopping;
+                    clicked => { root.stop(); }
+                }
+                if root.view.phase == 1 : TextButton { text: root.italian ? "Chiudi" : "Close"; clicked => { root.close(); } }
+                if root.view.phase == 1 : FilledButton {
+                    text: root.italian ? "Pulisci selezionati (\{root.selected-count})" : "Clean selected (\{root.selected-count})";
+                    enabled: root.selected-count > 0;
+                    clicked => { root.clean(); }
+                }
+                if root.view.phase == 3 && root.available-count > 0 : TextButton {
+                    text: root.italian ? "Esamina rimanenti" : "Review remaining";
+                    clicked => { root.review-remaining(); }
+                }
+                if root.view.phase == 3 : FilledButton { text: "OK"; clicked => { root.close(); } }
+            }
+        }
+    }
+}

@@ -23,6 +23,12 @@ pub fn launch_msi(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn removal(code: &str, quiet: bool) -> io::Result<Launch> {
+    if !is_product_code(code) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Invalid MSI product code",
+        ));
+    }
     Ok(Launch {
         executable: system_directory()?.join("msiexec.exe"),
         arguments: format!("/x {code} /norestart{}", if quiet { " /qn" } else { "" }),

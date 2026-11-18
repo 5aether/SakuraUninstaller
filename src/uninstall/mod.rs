@@ -5,4 +5,6 @@ pub(crate) mod msix;
 pub(crate) mod nsis;
 pub(crate) mod portable;
 pub(crate) mod processes;
+pub(crate) mod review;
 pub(crate) mod runner;
+pub(crate) mod session;

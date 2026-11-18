@@ -3,7 +3,7 @@ use crate::{
     safety::quarantine::Saved,
     scanner::{installed_apps::App, leftovers::Candidate},
     storage::Locations,
-    uninstall::runner::Job,
+    uninstall::{review::ReviewSession, runner::Job, session::BatchControl},
     updates,
 };
 use std::{
@@ -19,6 +19,8 @@ pub(crate) struct State {
     pub(crate) selection: [HashSet<String>; 3],
     pub(crate) visible: Vec<String>,
     pub(crate) pending: Option<Job>,
+    pub(crate) batch_control: Option<BatchControl>,
+    pub(crate) uninstall_review: Option<ReviewSession>,
     pub(crate) status: Option<Message>,
     pub(crate) report: Vec<Message>,
     pub(crate) failed: bool,

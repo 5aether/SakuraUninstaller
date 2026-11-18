@@ -1,5 +1,5 @@
 use crate::{
-    AppWindow, Entry,
+    AppWindow, CleanupTotals, Entry, ResidueEntry, UninstallView,
     reporting::report::Message,
     scanner::{
         installed_apps::App,
@@ -7,7 +7,11 @@ use crate::{
     },
     state::{Shared, State},
     storage::Locations,
-    uninstall::runner::{self as jobs, Job, Outcome},
+    uninstall::{
+        review::{Category, ItemState, Phase, ReviewSession, Totals, category, item_key},
+        runner::{self as jobs, Job, Outcome},
+        session::BatchControl,
+    },
     updates,
     utils::{
         icons, paths,
@@ -35,6 +39,135 @@ fn initial(name: &str) -> String {
         .next()
         .map(|letter| letter.to_uppercase().to_string())
         .unwrap_or_default()
+}
+
+fn popup_totals(totals: Totals, italian: bool) -> CleanupTotals {
+    let count = |value: usize| i32::try_from(value).unwrap_or(i32::MAX);
+    CleanupTotals {
+        registry: count(totals.registry),
+        files: count(totals.files),
+        other: count(totals.other),
+        bytes: size(totals.bytes, italian).into(),
+    }
+}
+
+fn draw_uninstall(ui: &AppWindow, state: &State) {
+    let Some(session) = &state.uninstall_review else {
+        return;
+    };
+    let italian = ui.get_italian();
+    let cleaned = session.totals(|item| item.state == ItemState::Quarantined);
+    let mut summary = if italian {
+        format!(
+            "Programmi rimossi: {} · Elementi in quarantena: {}.",
+            session.removed,
+            cleaned.count()
+        )
+    } else {
+        format!(
+            "Programs removed: {} · Items quarantined: {}.",
+            session.removed,
+            cleaned.count()
+        )
+    };
+    if session.failed {
+        summary.push_str(localized(
+            italian,
+            " Alcune operazioni richiedono attenzione: apri Rapporto.",
+            " Some operations need attention: open Report.",
+        ));
+    } else if session.cancelled {
+        summary.push_str(localized(
+            italian,
+            " Operazione interrotta.",
+            " Operation stopped.",
+        ));
+    }
+    if session.restart_required {
+        summary.push_str(localized(
+            italian,
+            " Riavvio richiesto.",
+            " Restart required.",
+        ));
+    }
+    let current = ui.get_uninstall_view();
+    ui.set_uninstall_view(UninstallView {
+        phase: session.phase as i32,
+        program: current.program,
+        icon: current.icon,
+        removed: i32::try_from(session.removed).unwrap_or(i32::MAX),
+        cleanup_total: i32::try_from(session.cleanup_total).unwrap_or(i32::MAX),
+        active_group: session.active_category as i32,
+        cleanup_processed: i32::try_from(
+            session
+                .totals(|item| {
+                    item.selected
+                        && matches!(item.state, ItemState::Quarantined | ItemState::Failed)
+                })
+                .count(),
+        )
+        .unwrap_or(i32::MAX),
+        detected: popup_totals(session.totals(|_| true), italian),
+        selected: popup_totals(
+            session.totals(|item| item.selected && item.selectable()),
+            italian,
+        ),
+        available: popup_totals(session.totals(|item| item.selectable()), italian),
+        cleaned: popup_totals(cleaned, italian),
+        failed: session.failed,
+        cancelled: session.cancelled,
+        summary: summary.into(),
+    });
+    let rows = |group| -> ModelRc<ResidueEntry> {
+        ModelRc::new(VecModel::from(
+            session
+                .items
+                .iter()
+                .filter(|item| category(&item.candidate) == group)
+                .map(|item| {
+                    let status = match item.state {
+                        ItemState::Pending if !item.candidate.writable() => {
+                            localized(italian, "solo rapporto", "report only")
+                        }
+                        ItemState::Pending => localized(italian, "da esaminare", "pending review"),
+                        ItemState::Cleaning => {
+                            localized(italian, "rimozione in corso…", "removing…")
+                        }
+                        ItemState::Quarantined => localized(
+                            italian,
+                            "in quarantena · ripristinabile",
+                            "quarantined · restorable",
+                        ),
+                        ItemState::Failed => {
+                            localized(italian, "rimozione non riuscita", "removal failed")
+                        }
+                    };
+                    let error = item
+                        .error
+                        .as_ref()
+                        .map(|error| format!(" · {}", error.text(italian)))
+                        .unwrap_or_default();
+                    ResidueEntry {
+                        id: item_key(&item.candidate).into(),
+                        path: item.candidate.path.to_string_lossy().as_ref().into(),
+                        description: format!("{} · {status}{error}", item.candidate.app).into(),
+                        size: if group == Category::Files {
+                            size(item.candidate.bytes, italian)
+                        } else {
+                            String::new()
+                        }
+                        .into(),
+                        selected: item.selected,
+                        selectable: item.selectable(),
+                        status: item.state as i32,
+                    }
+                })
+                .collect::<Vec<_>>(),
+        ))
+    };
+    ui.set_uninstall_registry(rows(Category::Registry));
+    ui.set_uninstall_files(rows(Category::Files));
+    ui.set_uninstall_other(rows(Category::Other));
 }
 
 fn draw(ui: &AppWindow, state: &mut State) {
@@ -223,6 +356,7 @@ fn draw(ui: &AppWindow, state: &mut State) {
             .map_or("", |status| status.text(italian))
             .into(),
     );
+    draw_uninstall(ui, state);
 }
 
 fn apply(ui: &AppWindow, shared: &Shared, outcome: Outcome) {
@@ -232,6 +366,9 @@ fn apply(ui: &AppWindow, shared: &Shared, outcome: Outcome) {
         return;
     }
     let mut state = shared.lock().unwrap();
+    state.batch_control = None;
+    ui.set_can_stop(false);
+    ui.set_stop_requested(false);
     if let Some(update) = outcome.update {
         state.update = update;
         ui.set_update_version(
@@ -280,6 +417,22 @@ fn apply(ui: &AppWindow, shared: &Shared, outcome: Outcome) {
         ui.set_has_report(true);
     }
     state.failed = outcome.failed;
+    let candidates = state.reviews.clone();
+    if let Some(session) = &mut state.uninstall_review {
+        match session.phase {
+            Phase::Uninstalling => session.finish_uninstall(
+                &candidates,
+                &outcome.removed_app_ids,
+                outcome.failed,
+                outcome.cancelled,
+                outcome.restart_required,
+            ),
+            Phase::Cleaning => {
+                session.finish_cleanup(&outcome.quarantined, outcome.failed, outcome.cancelled)
+            }
+            Phase::Review | Phase::Summary => (),
+        }
+    }
     draw(ui, &mut state);
     ui.set_busy(false);
 }
@@ -288,10 +441,32 @@ fn start(ui: &AppWindow, shared: &Shared, job: Job) {
     if ui.get_busy() {
         return;
     }
+    let control = BatchControl::default();
+    let stoppable = matches!(&job, Job::Uninstall(_, _, _, _) | Job::Quarantine(_));
     let (locations, reviews) = {
         let mut state = shared.lock().unwrap();
+        if let Job::Uninstall(apps, _, _, _) = &job {
+            state.uninstall_review = Some(ReviewSession::new(apps));
+            let first = apps.first();
+            ui.set_uninstall_view(UninstallView {
+                program: first.map_or("", |app| app.name.as_str()).into(),
+                icon: icons::image(first.and_then(|app| app.icon_file()).as_deref()),
+                ..UninstallView::default()
+            });
+            ui.set_menu_open(false);
+            ui.set_quick_menu_open(false);
+            ui.set_uninstall_open(true);
+        } else if matches!(&job, Job::Quarantine(_))
+            && ui.get_uninstall_open()
+            && let Some(session) = &mut state.uninstall_review
+        {
+            session.begin_cleanup();
+        }
         state.status = Some(job.starting());
         state.failed = false;
+        state.batch_control = stoppable.then(|| control.clone());
+        ui.set_can_stop(stoppable);
+        ui.set_stop_requested(false);
         ui.set_busy(true);
         draw(ui, &mut state);
         (state.locations.clone(), state.reviews.clone())
@@ -299,7 +474,28 @@ fn start(ui: &AppWindow, shared: &Shared, job: Job) {
     let weak = ui.as_weak();
     let shared = shared.clone();
     std::thread::spawn(move || {
-        let outcome = jobs::execute(&locations, job, reviews);
+        let progress_window = weak.clone();
+        let progress_state = shared.clone();
+        let outcome = jobs::execute(&locations, job, reviews, &control, &mut move |progress| {
+            let shared = progress_state.clone();
+            let _ = progress_window.upgrade_in_event_loop(move |ui| {
+                let mut state = shared.lock().unwrap();
+                if let Some(id) = &progress.app_id
+                    && let Some((app, _)) = state.apps.iter().find(|(app, _)| app.id == *id)
+                {
+                    let mut view = ui.get_uninstall_view();
+                    view.program = app.name.as_str().into();
+                    view.icon = icons::image(app.icon_file().as_deref());
+                    ui.set_uninstall_view(view);
+                }
+                if let Some(session) = &mut state.uninstall_review {
+                    session.update(&progress);
+                }
+                ui.set_status(progress.message.text(ui.get_italian()).into());
+                state.status = Some(progress.message);
+                draw_uninstall(&ui, &state);
+            });
+        });
         let _ = weak.upgrade_in_event_loop(move |ui| apply(&ui, &shared, outcome));
     });
 }
@@ -444,6 +640,8 @@ pub fn connect(ui: &AppWindow, locations: Locations) {
         selection: Default::default(),
         visible: Vec::new(),
         pending: None,
+        batch_control: None,
+        uninstall_review: None,
         status: None,
         report: Vec::new(),
         failed: false,
@@ -462,6 +660,63 @@ pub fn connect(ui: &AppWindow, locations: Locations) {
             });
         }};
     }
+
+    bind!(on_stop_queue, |ui, shared| {
+        if let Some(control) = &shared.lock().unwrap().batch_control {
+            control.request_stop();
+            ui.set_stop_requested(true);
+        }
+    });
+
+    bind!(on_close_uninstall, |ui, shared| {
+        if !ui.get_busy() {
+            shared.lock().unwrap().uninstall_review = None;
+            ui.set_uninstall_open(false);
+        }
+    });
+    bind!(on_select_uninstall_item, |ui, shared, id, selected| {
+        if !ui.get_busy() {
+            let mut state = shared.lock().unwrap();
+            if let Some(session) = &mut state.uninstall_review {
+                session.select(&id, selected);
+            }
+            draw_uninstall(&ui, &state);
+        }
+    });
+    bind!(on_select_uninstall_group, |ui, shared, group, selected| {
+        if !ui.get_busy() {
+            let mut state = shared.lock().unwrap();
+            if let Some(session) = &mut state.uninstall_review {
+                session.select_category(group, selected);
+            }
+            draw_uninstall(&ui, &state);
+        }
+    });
+    bind!(on_clean_uninstall, |ui, shared| {
+        let items = {
+            let state = shared.lock().unwrap();
+            state
+                .uninstall_review
+                .as_ref()
+                .filter(|session| session.phase == Phase::Review)
+                .map(|session| session.selected_candidates())
+                .unwrap_or_default()
+        };
+        if !items.is_empty() {
+            start(&ui, &shared, Job::Quarantine(items));
+        }
+    });
+    bind!(on_review_uninstall_remaining, |ui, shared| {
+        if !ui.get_busy() {
+            let mut state = shared.lock().unwrap();
+            if let Some(session) = &mut state.uninstall_review
+                && session.phase == Phase::Summary
+            {
+                session.phase = Phase::Review;
+            }
+            draw_uninstall(&ui, &state);
+        }
+    });
 
     bind!(on_load_page, |ui, shared, tab| {
         ui.set_page(tab);

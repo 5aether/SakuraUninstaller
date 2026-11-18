@@ -102,6 +102,26 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Sakura Uninstaller smoke test exited with code $($process.ExitCode)."
           }
+      - name: Upload Windows x64 executable
+        id: exe_artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: target/release/SakuraUninstaller.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Add executable download to run summary
+        shell: pwsh
+        env:
+          EXE_ARTIFACT_URL: ${{ steps.exe_artifact.outputs.artifact-url }}
+        run: |
+          @(
+            '### Windows x64 executable'
+            ''
+            "[Download SakuraUninstaller.exe]($env:EXE_ARTIFACT_URL)"
+            ''
+            'Release build. Available for 14 days.'
+          ) | Add-Content -Encoding utf8 -LiteralPath $env:GITHUB_STEP_SUMMARY
       - name: Bundle executable with checksum
         shell: pwsh
         run: |

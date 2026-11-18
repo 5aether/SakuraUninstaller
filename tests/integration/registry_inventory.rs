@@ -49,7 +49,7 @@ fn parses_only_removable_named_msi_fixtures_and_searches_metadata() -> io::Resul
 }
 
 #[test]
-fn identifies_installer_metadata_and_requires_a_registered_quiet_command() -> io::Result<()> {
+fn identifies_installer_metadata_and_only_derives_documented_quiet_modes() -> io::Result<()> {
     let fixture = Fixture(format!(
         r"Software\SakuraUninstaller-test-{}",
         uuid::Uuid::new_v4()
@@ -74,7 +74,10 @@ fn identifies_installer_metadata_and_requires_a_registered_quiet_command() -> io
         let app = read_app(&key, "test", name).unwrap();
         assert_eq!(app.installer, label);
         assert!(app.removable());
-        assert!(!app.quiet_supported());
+        assert_eq!(
+            app.quiet_supported(),
+            matches!(label, "Inno Setup" | "NSIS")
+        );
         key.set_string("QuietUninstallString", r"C:\Fixture\uninstall.exe /S")
             .map_err(io::Error::other)?;
         assert!(read_app(&key, "test", name).unwrap().quiet_supported());

@@ -38,7 +38,11 @@ impl App {
     }
 
     pub fn quiet_supported(&self) -> bool {
-        self.package.is_some() || self.msi.is_some() || self.quiet_command.is_some()
+        self.removable()
+            && (self.package.is_some()
+                || self.msi.is_some()
+                || self.quiet_command.is_some()
+                || matches!(self.installer.as_str(), "Inno Setup" | "NSIS"))
     }
 
     pub fn search_text(&self) -> String {
@@ -183,7 +187,11 @@ pub fn full_cached(previous: &[App]) -> io::Result<(Vec<App>, Option<io::Error>)
             apps.extend(packages);
             None
         }
-        Err(error) => Some(error),
+        Err(error) => {
+            // A transient package error must not erase MSIX entries from the cache.
+            apps.extend(previous.iter().filter(|app| app.package.is_some()).cloned());
+            Some(error)
+        }
     };
     for app in apps.iter_mut().filter(|app| app.icon.is_none()) {
         app.icon = app.derived_icon();

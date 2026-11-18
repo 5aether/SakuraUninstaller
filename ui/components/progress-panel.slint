@@ -1,6 +1,40 @@
-import { LinearProgressIndicator } from "@material";
+import { LinearProgressIndicator, MaterialText, MaterialTypography, TextButton } from "@material";
 
-export component ProgressPanel inherits LinearProgressIndicator {
+export component ProgressPanel inherits VerticalLayout {
+    in property <bool> italian;
+    in property <string> text;
+    in property <bool> stoppable;
+    in property <bool> stopping;
+    callback stop();
+
     vertical-stretch: 0;
-    indeterminate: true;
+    spacing: 6px;
+
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: space-between;
+
+        MaterialText {
+            text: root.text;
+            style: MaterialTypography.body_medium;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+
+        if root.stoppable : TextButton {
+            text: root.italian ? "Interrompi coda" : "Stop queue";
+            enabled: !root.stopping;
+            clicked => { root.stop(); }
+        }
+    }
+
+    if root.stopping : MaterialText {
+        text: root.italian
+            ? "Interruzione richiesta. Attendo il completamento del programma corrente…"
+            : "Stop requested. Waiting for the current program to finish…";
+        style: MaterialTypography.body_small;
+        wrap: word-wrap;
+    }
+
+    LinearProgressIndicator { indeterminate: true; }
 }

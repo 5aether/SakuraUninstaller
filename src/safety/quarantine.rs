@@ -29,6 +29,11 @@ pub struct Saved {
     pub item: Candidate,
 }
 
+pub(crate) struct Quarantined {
+    pub item: Candidate,
+    pub compression: compression::Summary,
+}
+
 impl Locations {
     pub fn saved(&self) -> io::Result<Vec<Saved>> {
         let mut entries = Vec::new();
@@ -94,7 +99,7 @@ impl Locations {
         &self,
         item: &Candidate,
         installed: &[App],
-    ) -> io::Result<compression::Summary> {
+    ) -> io::Result<Quarantined> {
         let verified = remaining(self, std::slice::from_ref(item), installed);
         let mut item = verified
             .first()
@@ -118,15 +123,21 @@ impl Locations {
         );
         result?;
         if item.integration.is_some() {
-            return Ok(compression::Summary::default());
+            return Ok(Quarantined {
+                item,
+                compression: compression::Summary::default(),
+            });
         }
         let summary = match compression::compress(&path, &path.join("payload")) {
             Ok(summary) => summary,
             Err(error) => {
                 let _ = self.log("compress", &item.path.to_string_lossy(), &error.to_string());
-                return Ok(compression::Summary {
-                    compressed: 0,
-                    skipped: 1,
+                return Ok(Quarantined {
+                    item,
+                    compression: compression::Summary {
+                        compressed: 0,
+                        skipped: 1,
+                    },
                 });
             }
         };
@@ -140,7 +151,10 @@ impl Locations {
                 ),
             );
         }
-        Ok(summary)
+        Ok(Quarantined {
+            item,
+            compression: summary,
+        })
     }
 }
 
